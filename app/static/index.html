@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Our AI</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">AI</div>
+                <div>
+                    <strong>Our AI</strong>
+                    <span>Local AI Core</span>
+                </div>
+            </div>
+
+            <button id="newChatButton" class="new-chat-button" type="button">
+                <span>＋</span>
+                Nueva conversación
+            </button>
+
+            <div class="sidebar-label">Conversaciones</div>
+            <div id="conversationList" class="conversation-list"></div>
+
+            <div class="sidebar-footer">
+                <div class="status-row">
+                    <span id="statusDot" class="status-dot"></span>
+                    <div>
+                        <strong id="statusText">Comprobando...</strong>
+                        <span id="statusDetail">Servidor local</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="chat-panel">
+            <header class="chat-header">
+                <div>
+                    <span class="eyebrow">SELF-HOSTED</span>
+                    <h1 id="conversationTitle">Nueva conversación</h1>
+                </div>
+
+                <div class="header-actions">
+                    <span id="modelBadge" class="model-badge">Qwen</span>
+                    <button
+                        id="deleteChatButton"
+                        class="icon-button"
+                        type="button"
+                        title="Eliminar conversación"
+                        disabled
+                    >
+                        Eliminar
+                    </button>
+                </div>
+            </header>
+
+            <section id="messages" class="messages">
+                <div id="emptyState" class="empty-state">
+                    <div class="empty-orb">AI</div>
+                    <h2>¿Qué quieres construir?</h2>
+                    <p>
+                        Este chat usa tu API local, tu modelo Qwen y
+                        conversaciones persistentes.
+                    </p>
+
+                    <div class="suggestions">
+                        <button class="suggestion" type="button">
+                            Explícame cómo funciona este AI Core
+                        </button>
+                        <button class="suggestion" type="button">
+                            Dame una idea para una skill
+                        </button>
+                        <button class="suggestion" type="button">
+                            ¿Qué recuerdas de esta conversación?
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <div class="composer-wrap">
+                <form id="chatForm" class="composer">
+                    <textarea
+                        id="messageInput"
+                        rows="1"
+                        maxlength="12000"
+                        placeholder="Escribe un mensaje..."
+                        aria-label="Mensaje"
+                    ></textarea>
+                    <button
+                        id="sendButton"
+                        class="send-button"
+                        type="submit"
+                        aria-label="Enviar"
+                    >
+                        ↑
+                    </button>
+                </form>
+                <p class="composer-note">
+                    Modelo ejecutándose localmente con Ollama.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
