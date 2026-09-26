@@ -8,7 +8,16 @@ class ChatRequest(BaseModel):
         description="Mensaje enviado por el usuario",
     )
 
+    conversation_id: str | None = Field(
+        default=None,
+        description=(
+            "Identificador de la conversación. "
+            "Si no se proporciona, se crea uno nuevo."
+        ),
+    )
+
 
 class ChatResponse(BaseModel):
     response: str
     model: str
+    conversation_id: str

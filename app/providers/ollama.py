@@ -12,26 +12,8 @@ class OllamaProvider(ModelProvider):
 
     async def chat(
         self,
-        message: str,
-        system_prompt: str | None = None,
+        messages: list[dict[str, str]],
     ) -> str:
-
-        messages = []
-
-        if system_prompt:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                }
-            )
-
-        messages.append(
-            {
-                "role": "user",
-                "content": message,
-            }
-        )
 
         payload = {
             "model": self.model,

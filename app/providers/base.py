@@ -6,11 +6,10 @@ class ModelProvider(ABC):
     @abstractmethod
     async def chat(
         self,
-        message: str,
-        system_prompt: str | None = None,
+        messages: list[dict[str, str]],
     ) -> str:
         """
-        Envía un mensaje al modelo y devuelve solamente
-        el texto generado.
+        Envía una conversación completa al modelo
+        y devuelve el texto generado.
         """
         raise NotImplementedError
