@@ -18,16 +18,27 @@ class ChatRequest(BaseModel):
         ),
     )
 
+    project_id: str | None = Field(
+        default=None,
+        description=(
+            "Proyecto que contiene el conocimiento y las "
+            "conversaciones de este chat."
+        ),
+    )
+
 
 class ChatResponse(BaseModel):
     response: str
     model: str
     conversation_id: str
+    project_id: str
+    knowledge_chunks_used: int = 0
 
 
 class ConversationSummary(BaseModel):
     id: str
     title: str
+    project_id: str
     created_at: datetime
     updated_at: datetime
 
