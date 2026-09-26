@@ -79,7 +79,7 @@ class KnowledgeStore:
         project_id: str,
         title: str,
         content: str,
-    ) -> KnowledgeSource:
+    ) -> tuple[KnowledgeSource, int]:
         chunks = _chunk_text(content)
 
         if not chunks:
@@ -107,23 +107,30 @@ class KnowledgeStore:
             async with session.begin():
                 session.add(source)
 
-                session.add_all(
-                    [
-                        KnowledgeChunk(
-                            id=str(uuid4()),
-                            source_id=source_id,
-                            project_id=project_id,
-                            chunk_index=index,
-                            content=chunk,
-                            embedding=embedding,
-                            created_at=now,
-                        )
-                        for index, (chunk, embedding)
-                        in enumerate(zip(chunks, embeddings))
-                    ]
-                )
+                # Force the source INSERT before inserting child chunks.
+                # This keeps the FK dependency deterministic in PostgreSQL.
+                await session.flush()
 
-        return source
+                chunk_records = [
+                    KnowledgeChunk(
+                        id=str(uuid4()),
+                        source_id=source_id,
+                        project_id=project_id,
+                        chunk_index=index,
+                        content=chunk,
+                        embedding=[
+                            float(value)
+                            for value in embedding
+                        ],
+                        created_at=now,
+                    )
+                    for index, (chunk, embedding)
+                    in enumerate(zip(chunks, embeddings))
+                ]
+
+                session.add_all(chunk_records)
+
+        return source, len(chunks)
 
     async def list_sources(
         self,
@@ -199,7 +206,10 @@ class KnowledgeStore:
                 chunk,
                 _cosine_similarity(
                     query_embedding,
-                    list(chunk.embedding),
+                    [
+                        float(value)
+                        for value in chunk.embedding
+                    ],
                 ),
             )
             for chunk in chunks

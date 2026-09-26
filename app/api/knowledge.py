@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -7,6 +9,9 @@ from app.schemas.projects import (
     KnowledgeCreate,
     KnowledgeResponse,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(
@@ -25,6 +30,20 @@ async def _require_project(project_id: str) -> None:
         )
 
 
+def _database_error_detail(exc: SQLAlchemyError) -> str:
+    original = getattr(exc, "orig", None)
+
+    if original is None:
+        return exc.__class__.__name__
+
+    detail = str(original).strip()
+    if not detail:
+        return original.__class__.__name__
+
+    # Avoid sending an excessively large SQL/parameter payload to the UI.
+    return detail[:500]
+
+
 @router.get(
     "",
     response_model=list[KnowledgeResponse],
@@ -38,9 +57,13 @@ async def list_knowledge(
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
+        logger.exception("Could not load project knowledge")
         raise HTTPException(
             status_code=503,
-            detail="No se pudo cargar el conocimiento.",
+            detail=(
+                "No se pudo cargar el conocimiento: "
+                + _database_error_detail(exc)
+            ),
         ) from exc
 
     return [
@@ -67,17 +90,10 @@ async def add_knowledge(
     try:
         await _require_project(project_id)
 
-        source = await knowledge_store.add_text(
+        source, chunk_count = await knowledge_store.add_text(
             project_id=project_id,
             title=request.title,
             content=request.content,
-        )
-
-        sources = await knowledge_store.list_sources(project_id)
-        chunk_count = next(
-            count
-            for item, count in sources
-            if item.id == source.id
         )
 
     except HTTPException:
@@ -93,9 +109,13 @@ async def add_knowledge(
             detail=str(exc),
         ) from exc
     except SQLAlchemyError as exc:
+        logger.exception("Could not persist project knowledge")
         raise HTTPException(
             status_code=503,
-            detail="No se pudo guardar el conocimiento.",
+            detail=(
+                "No se pudo guardar el conocimiento en PostgreSQL: "
+                + _database_error_detail(exc)
+            ),
         ) from exc
 
     return KnowledgeResponse(
@@ -121,9 +141,13 @@ async def delete_knowledge(
             source_id,
         )
     except SQLAlchemyError as exc:
+        logger.exception("Could not delete project knowledge")
         raise HTTPException(
             status_code=503,
-            detail="No se pudo eliminar el conocimiento.",
+            detail=(
+                "No se pudo eliminar el conocimiento: "
+                + _database_error_detail(exc)
+            ),
         ) from exc
 
     if not deleted:
