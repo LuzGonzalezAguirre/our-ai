@@ -6,6 +6,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.chat import router as chat_router
+from app.api.knowledge import router as knowledge_router
+from app.api.projects import router as projects_router
 from app.core.config import settings
 from app.db.database import (
     check_database,
@@ -60,6 +62,7 @@ async def health():
     return {
         "status": "ok" if database_ok else "degraded",
         "model": settings.ollama_model,
+        "embedding_model": settings.ollama_embedding_model,
         "provider": "ollama",
         "database": (
             "connected"
@@ -71,3 +74,5 @@ async def health():
 
 
 app.include_router(chat_router)
+app.include_router(projects_router)
+app.include_router(knowledge_router)

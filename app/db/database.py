@@ -28,6 +28,52 @@ async def init_database() -> None:
             Base.metadata.create_all
         )
 
+        await connection.execute(
+            text(
+                """
+                INSERT INTO ai_projects (
+                    id,
+                    name,
+                    description,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :project_id,
+                    'General',
+                    'Proyecto general creado automáticamente.',
+                    NOW(),
+                    NOW()
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {
+                "project_id": settings.default_project_id,
+            },
+        )
+
+        await connection.execute(
+            text(
+                """
+                INSERT INTO ai_conversation_projects (
+                    conversation_id,
+                    project_id
+                )
+                SELECT
+                    conversations.id,
+                    :project_id
+                FROM ai_conversations AS conversations
+                LEFT JOIN ai_conversation_projects AS mapping
+                    ON mapping.conversation_id = conversations.id
+                WHERE mapping.conversation_id IS NULL
+                """
+            ),
+            {
+                "project_id": settings.default_project_id,
+            },
+        )
+
 
 async def check_database() -> tuple[bool, str | None]:
     try:
