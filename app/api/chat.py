@@ -1,10 +1,12 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.core.conversations import conversation_store
+from app.core.knowledge import knowledge_store
+from app.core.projects import project_store
 from app.providers.ollama import OllamaProvider
 from app.schemas.chat import (
     ChatRequest,
@@ -26,8 +28,34 @@ provider = OllamaProvider()
 SYSTEM_PROMPT = (
     "Eres un asistente de inteligencia artificial. "
     "Responde de manera clara, precisa y útil. "
-    "Responde en el idioma utilizado por el usuario."
+    "Responde en el idioma utilizado por el usuario. "
+    "Cuando recibas conocimiento del proyecto, úsalo solamente "
+    "si es relevante para la pregunta. No inventes datos que no "
+    "aparezcan en el conocimiento recuperado."
 )
+
+
+def _knowledge_message(
+    chunks: list[tuple[object, float]],
+) -> dict[str, str] | None:
+    if not chunks:
+        return None
+
+    sections = []
+
+    for index, (chunk, score) in enumerate(chunks, start=1):
+        sections.append(
+            f"[Fragmento {index} | similitud {score:.3f}]\n"
+            f"{chunk.content}"
+        )
+
+    return {
+        "role": "system",
+        "content": (
+            "Conocimiento recuperado del proyecto actual:\n\n"
+            + "\n\n".join(sections)
+        ),
+    }
 
 
 @router.post(
@@ -38,20 +66,65 @@ async def chat(
     request: ChatRequest,
 ) -> ChatResponse:
 
-    conversation_id = (
-        request.conversation_id
-        or str(uuid4())
+    project_id = (
+        request.project_id
+        or settings.default_project_id
     )
 
     try:
+        project = await project_store.get(project_id)
+
+        if project is None:
+            raise HTTPException(
+                status_code=404,
+                detail="El proyecto no existe.",
+            )
+
+        if request.conversation_id:
+            current_project_id = (
+                await conversation_store.get_project_id(
+                    request.conversation_id
+                )
+            )
+
+            if (
+                current_project_id is not None
+                and current_project_id != project_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "La conversación pertenece a otro proyecto."
+                    ),
+                )
+
+        conversation_id = (
+            request.conversation_id
+            or str(uuid4())
+        )
+
         history = await conversation_store.get_messages(
             conversation_id
         )
+
+        knowledge_chunks = await knowledge_store.retrieve(
+            project_id=project_id,
+            query=request.message,
+            top_k=4,
+        )
+
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=503,
             detail=(
-                "No se pudo leer la conversación desde PostgreSQL."
+                "No se pudo preparar el contexto del chat."
             ),
         ) from exc
 
@@ -60,12 +133,24 @@ async def chat(
             "role": "system",
             "content": SYSTEM_PROMPT,
         },
-        *history,
-        {
-            "role": "user",
-            "content": request.message,
-        },
     ]
+
+    knowledge_message = _knowledge_message(
+        knowledge_chunks
+    )
+
+    if knowledge_message:
+        messages.append(knowledge_message)
+
+    messages.extend(
+        [
+            *history,
+            {
+                "role": "user",
+                "content": request.message,
+            },
+        ]
+    )
 
     try:
         response = await provider.chat(
@@ -82,7 +167,13 @@ async def chat(
             conversation_id=conversation_id,
             user_message=request.message,
             assistant_message=response,
+            project_id=project_id,
         )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=503,
@@ -96,6 +187,8 @@ async def chat(
         response=response,
         model=settings.ollama_model,
         conversation_id=conversation_id,
+        project_id=project_id,
+        knowledge_chunks_used=len(knowledge_chunks),
     )
 
 
@@ -103,9 +196,13 @@ async def chat(
     "/conversations",
     response_model=list[ConversationSummary],
 )
-async def list_conversations() -> list[ConversationSummary]:
+async def list_conversations(
+    project_id: str | None = Query(default=None),
+) -> list[ConversationSummary]:
     try:
-        conversations = await conversation_store.list_conversations()
+        conversations = await conversation_store.list_conversations(
+            project_id=project_id
+        )
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=503,
@@ -116,10 +213,12 @@ async def list_conversations() -> list[ConversationSummary]:
         ConversationSummary(
             id=conversation.id,
             title=conversation.title,
+            project_id=conversation_project_id,
             created_at=conversation.created_at,
             updated_at=conversation.updated_at,
         )
-        for conversation in conversations
+        for conversation, conversation_project_id
+        in conversations
     ]
 
 
