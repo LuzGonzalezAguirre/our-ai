@@ -17,6 +17,35 @@
                 </div>
             </div>
 
+            <div class="project-block">
+                <div class="project-label-row">
+                    <span>Proyecto</span>
+                    <button
+                        id="newProjectButton"
+                        class="mini-button"
+                        type="button"
+                        title="Crear proyecto"
+                    >
+                        ＋
+                    </button>
+                </div>
+
+                <select
+                    id="projectSelect"
+                    class="project-select"
+                    aria-label="Proyecto"
+                ></select>
+
+                <button
+                    id="knowledgeButton"
+                    class="knowledge-button"
+                    type="button"
+                >
+                    Conocimiento
+                    <span>↗</span>
+                </button>
+            </div>
+
             <button id="newChatButton" class="new-chat-button" type="button">
                 <span>＋</span>
                 Nueva conversación
@@ -39,11 +68,12 @@
         <main class="chat-panel">
             <header class="chat-header">
                 <div>
-                    <span class="eyebrow">SELF-HOSTED</span>
+                    <span id="projectEyebrow" class="eyebrow">GENERAL</span>
                     <h1 id="conversationTitle">Nueva conversación</h1>
                 </div>
 
                 <div class="header-actions">
+                    <span id="ragBadge" class="model-badge">RAG local</span>
                     <span id="modelBadge" class="model-badge">Qwen</span>
                     <button
                         id="deleteChatButton"
@@ -60,21 +90,21 @@
             <section id="messages" class="messages">
                 <div id="emptyState" class="empty-state">
                     <div class="empty-orb">AI</div>
-                    <h2>¿Qué quieres construir?</h2>
+                    <h2>Pregunta dentro de tu proyecto</h2>
                     <p>
-                        Este chat usa tu API local, tu modelo Qwen y
-                        conversaciones persistentes.
+                        Cada proyecto mantiene sus conversaciones y su
+                        conocimiento separados.
                     </p>
 
                     <div class="suggestions">
                         <button class="suggestion" type="button">
-                            Explícame cómo funciona este AI Core
+                            ¿Qué conocimiento tienes en este proyecto?
                         </button>
                         <button class="suggestion" type="button">
-                            Dame una idea para una skill
+                            Resume lo que sabes de este proyecto
                         </button>
                         <button class="suggestion" type="button">
-                            ¿Qué recuerdas de esta conversación?
+                            Ayúdame a organizar el conocimiento
                         </button>
                     </div>
                 </div>
@@ -99,10 +129,114 @@
                     </button>
                 </form>
                 <p class="composer-note">
-                    Modelo ejecutándose localmente con Ollama.
+                    Chat y embeddings ejecutándose localmente con Ollama.
                 </p>
             </div>
         </main>
+    </div>
+
+    <div id="projectModal" class="modal-backdrop" hidden>
+        <section class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <span class="eyebrow">PROJECT</span>
+                    <h2>Nuevo proyecto</h2>
+                </div>
+                <button
+                    class="modal-close"
+                    type="button"
+                    data-close-modal="projectModal"
+                >
+                    ×
+                </button>
+            </div>
+
+            <form id="projectForm" class="stack-form">
+                <label>
+                    Nombre
+                    <input
+                        id="projectName"
+                        maxlength="80"
+                        required
+                        placeholder="Ej. Quality"
+                    >
+                </label>
+
+                <label>
+                    Descripción
+                    <textarea
+                        id="projectDescription"
+                        rows="4"
+                        maxlength="500"
+                        placeholder="¿Qué va a conocer y resolver este proyecto?"
+                    ></textarea>
+                </label>
+
+                <button class="primary-button" type="submit">
+                    Crear proyecto
+                </button>
+            </form>
+        </section>
+    </div>
+
+    <div id="knowledgeModal" class="modal-backdrop" hidden>
+        <section class="modal-card modal-card-wide">
+            <div class="modal-header">
+                <div>
+                    <span class="eyebrow">KNOWLEDGE</span>
+                    <h2 id="knowledgeProjectTitle">Conocimiento</h2>
+                </div>
+                <button
+                    class="modal-close"
+                    type="button"
+                    data-close-modal="knowledgeModal"
+                >
+                    ×
+                </button>
+            </div>
+
+            <div class="knowledge-layout">
+                <form id="knowledgeForm" class="stack-form">
+                    <label>
+                        Título
+                        <input
+                            id="knowledgeTitle"
+                            maxlength="140"
+                            required
+                            placeholder="Ej. Procedimiento de inspección"
+                        >
+                    </label>
+
+                    <label>
+                        Contenido
+                        <textarea
+                            id="knowledgeContent"
+                            rows="12"
+                            maxlength="120000"
+                            required
+                            placeholder="Pega aquí información, reglas, procedimientos, notas o documentación..."
+                        ></textarea>
+                    </label>
+
+                    <button
+                        id="knowledgeSubmitButton"
+                        class="primary-button"
+                        type="submit"
+                    >
+                        Alimentar proyecto
+                    </button>
+
+                    <p class="form-hint">
+                        El texto se fragmenta y vectoriza localmente.
+                    </p>
+                </form>
+
+                <div class="knowledge-existing">
+                    <div class="sidebar-label">Fuentes guardadas</div>
+                    <div id="knowledgeList" class="knowledge-list"></div>
+                </div>
+            </div>
+        </section>
     </div>
 
     <script src="/static/app.js"></script>
