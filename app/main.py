@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.action_tracker import router as action_tracker_router
 from app.api.chat import router as chat_router
 from app.api.knowledge import router as knowledge_router
 from app.api.projects import router as projects_router
@@ -70,9 +71,18 @@ async def health():
             else "disconnected"
         ),
         "database_error": database_error,
+        "action_tracker": (
+            "configured"
+            if (
+                settings.action_tracker_enabled
+                and settings.action_tracker_token
+            )
+            else "disabled"
+        ),
     }
 
 
 app.include_router(chat_router)
 app.include_router(projects_router)
 app.include_router(knowledge_router)
+app.include_router(action_tracker_router)
