@@ -113,6 +113,13 @@ FOLLOWUP_HINTS = (
     "mas tiempo",
     "recurrencia",
     "repetid",
+    "estas acciones",
+    "estas",
+    "el resumen",
+    "resumen de",
+    "otras acciones",
+    "otras tres",
+    "y las otras",
 )
 
 BOTTLENECK_TERMS = (
@@ -237,14 +244,106 @@ def _recent_project_code(
     return None
 
 
+def _exclude_npi_requested(text: str) -> bool:
+    folded = _fold(text)
+    return any(
+        phrase in folded
+        for phrase in (
+            "no npi",
+            "sin npi",
+            "sin incluir npi",
+            "sin incluir los npi",
+            "excluir npi",
+            "excluye npi",
+            "excepto npi",
+        )
+    )
+
+
 def _detect_domain(text: str) -> str | None:
     folded = _fold(text)
+
+    if _exclude_npi_requested(text):
+        return None
 
     for domain, aliases in DOMAIN_ALIASES.items():
         if any(alias in folded for alias in aliases):
             return domain
 
     return None
+
+
+def _codes_from_text(text: str) -> list[str]:
+    codes = []
+
+    for match in ACTION_CODE_RE.finditer(
+        str(text or "")
+    ):
+        code = match.group(0).upper()
+
+        if code not in codes:
+            codes.append(code)
+
+    return codes
+
+
+def _recent_result_codes(
+    question: str,
+    history: list[dict] | None,
+) -> list[str]:
+    folded = _fold(question)
+    messages = _history_messages(history)
+
+    if "otra" in folded:
+        prior_user_codes: list[str] = []
+        latest_assistant_codes: list[str] = []
+
+        for message in reversed(messages):
+            codes = _codes_from_text(
+                str(message.get("content") or "")
+            )
+
+            if not codes:
+                continue
+
+            if (
+                message.get("role") == "assistant"
+                and not latest_assistant_codes
+            ):
+                latest_assistant_codes = codes
+                continue
+
+            if (
+                message.get("role") == "user"
+                and len(codes) >= 2
+            ):
+                prior_user_codes = codes
+                break
+
+        if prior_user_codes:
+            remaining = [
+                code
+                for code in prior_user_codes
+                if code not in latest_assistant_codes
+            ]
+            if remaining:
+                return remaining
+
+    if not _is_followup(question):
+        return []
+
+    for message in reversed(messages):
+        if message.get("role") != "assistant":
+            continue
+
+        codes = _codes_from_text(
+            str(message.get("content") or "")
+        )
+
+        if codes:
+            return codes
+
+    return []
 
 
 def _history_scope_text(
@@ -368,6 +467,9 @@ def _combined_filters(
 ) -> tuple[dict[str, str], str | None]:
     current_filters = infer_filters(question, actions)
     current_domain = _detect_domain(question)
+
+    if _exclude_npi_requested(question):
+        return {}, None
 
     if current_filters and current_domain:
         return current_filters, current_domain
@@ -1418,10 +1520,10 @@ async def build_action_tracker_result(
     )
 
     try:
-        explicit_code_match = ACTION_CODE_RE.search(question)
+        explicit_codes = _codes_from_text(question)
 
-        if explicit_code_match:
-            explicit_code = explicit_code_match.group(0).upper()
+        if len(explicit_codes) == 1:
+            explicit_code = explicit_codes[0]
 
             if NPI_PROJECT_RE.fullmatch(explicit_code):
                 return await _answer_npi_project(
@@ -1438,6 +1540,26 @@ async def build_action_tracker_result(
                     explicit_code,
                 ),
                 mode="action_detail",
+            )
+
+        if len(explicit_codes) > 1:
+            raw = await action_tracker.list_actions(
+                open_only=False,
+            )
+            selected = [
+                enrich_action(action)
+                for action in raw
+                if str(action.get("codigo") or "").upper()
+                in set(explicit_codes)
+            ]
+            return ActionTrackerChatResult(
+                direct_answer=_list_answer(
+                    "Acciones mencionadas",
+                    selected,
+                    "No encontré las acciones mencionadas.",
+                    limit=len(explicit_codes),
+                ),
+                mode="mentioned_actions",
             )
 
         if (
@@ -1544,6 +1666,13 @@ async def build_action_tracker_result(
             history,
             enriched,
         )
+        result_codes = _recent_result_codes(
+            question,
+            history,
+        )
+        exclude_npi = _exclude_npi_requested(
+            question
+        )
 
         scoped = _domain_filter(
             enriched,
@@ -1555,6 +1684,24 @@ async def build_action_tracker_result(
                 scoped,
                 filters,
             )
+
+        if result_codes:
+            allowed_codes = set(result_codes)
+            scoped = [
+                action
+                for action in scoped
+                if str(action.get("codigo") or "").upper()
+                in allowed_codes
+            ]
+
+        if exclude_npi:
+            scoped = [
+                action
+                for action in scoped
+                if not _fold(
+                    action.get("codigo")
+                ).startswith("npi-")
+            ]
 
         if (
             settings.action_tracker_default_user
@@ -1583,7 +1730,8 @@ async def build_action_tracker_result(
         ]
 
         inherited_overdue = (
-            _history_mentions_overdue(history)
+            not result_codes
+            and _history_mentions_overdue(history)
             and _is_followup(question)
         )
 
@@ -1928,6 +2076,9 @@ async def build_action_tracker_result(
                 title += " · " + " / ".join(
                     dict.fromkeys(labels)
                 )
+
+            if exclude_npi:
+                title += " · sin NPI"
 
             return ActionTrackerChatResult(
                 direct_answer=_list_answer(
