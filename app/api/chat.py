@@ -199,6 +199,48 @@ async def chat(
             action_tracker_used=True,
         )
 
+    if (
+        not action_result.context
+        and is_knowledge_lookup(request.message)
+    ):
+        try:
+            knowledge_sources = (
+                await knowledge_store.list_source_records(
+                    project_id
+                )
+            )
+        except SQLAlchemyError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "No se pudo consultar el conocimiento "
+                    "guardado del proyecto."
+                ),
+            ) from exc
+
+        response = build_knowledge_answer(
+            request.message,
+            knowledge_sources,
+        )
+
+        await _save_exchange(
+            conversation_id=conversation_id,
+            project_id=project_id,
+            user_message=request.message,
+            assistant_message=response,
+        )
+
+        return ChatResponse(
+            response=response,
+            model="RAG local",
+            conversation_id=conversation_id,
+            project_id=project_id,
+            knowledge_chunks_used=(
+                1 if knowledge_sources else 0
+            ),
+            action_tracker_used=False,
+        )
+
     try:
         if action_result.context:
             knowledge_chunks = []
@@ -221,31 +263,6 @@ async def chat(
                 "No se pudo preparar el contexto del chat."
             ),
         ) from exc
-
-    if (
-        not action_result.context
-        and is_knowledge_lookup(request.message)
-    ):
-        response = build_knowledge_answer(
-            request.message,
-            knowledge_chunks,
-        )
-
-        await _save_exchange(
-            conversation_id=conversation_id,
-            project_id=project_id,
-            user_message=request.message,
-            assistant_message=response,
-        )
-
-        return ChatResponse(
-            response=response,
-            model="RAG local",
-            conversation_id=conversation_id,
-            project_id=project_id,
-            knowledge_chunks_used=len(knowledge_chunks),
-            action_tracker_used=False,
-        )
 
     messages = [
         {
