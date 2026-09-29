@@ -3,6 +3,7 @@ import re
 
 from app.analytics.action_tracker import (
     bottlenecks,
+    enrich_action,
     infer_filters,
     overview,
     trends,
@@ -101,12 +102,12 @@ def _compact_action(action: dict) -> dict:
 
 
 def _compact_detail(data: dict) -> dict:
-    action = data.get("action") or {}
+    action = enrich_action(data.get("action") or {})
 
     return {
         "action": _compact_action(action),
         "children": [
-            _compact_action(child)
+            _compact_action(enrich_action(child))
             for child in data.get("children", [])[:30]
         ],
         "updates": data.get("updates", [])[:15],
