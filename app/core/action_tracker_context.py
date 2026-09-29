@@ -110,6 +110,7 @@ FOLLOWUP_HINTS = (
     "toma el proyecto",
     "más tiempo",
     "mas tiempo",
+    "recurrencia",
 )
 
 BOTTLENECK_TERMS = (
@@ -175,6 +176,9 @@ def _parse_date(value) -> date | None:
 
 
 def _is_conceptual(question: str) -> bool:
+    if ACTION_CODE_RE.search(question):
+        return False
+
     folded = _fold(question)
 
     if any(folded.startswith(prefix) for prefix in CONCEPTUAL_PREFIXES):
@@ -370,7 +374,7 @@ def _combined_filters(
     )
     history_domain = _detect_domain(history_text)
 
-    if _is_followup(question) or not current_filters:
+    if _is_followup(question):
         inherited = dict(history_filters)
         inherited.update(current_filters)
         return (
