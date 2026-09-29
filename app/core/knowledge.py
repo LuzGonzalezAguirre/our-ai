@@ -129,6 +129,18 @@ class KnowledgeStore:
 
         return source, len(chunks)
 
+    async def list_source_records(
+        self,
+        project_id: str,
+    ) -> list[KnowledgeSource]:
+        async with SessionLocal() as session:
+            result = await session.execute(
+                select(KnowledgeSource)
+                .where(KnowledgeSource.project_id == project_id)
+                .order_by(KnowledgeSource.created_at.desc())
+            )
+            return list(result.scalars().all())
+
     async def list_sources(
         self,
         project_id: str,

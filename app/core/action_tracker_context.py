@@ -112,6 +112,7 @@ FOLLOWUP_HINTS = (
     "más tiempo",
     "mas tiempo",
     "recurrencia",
+    "repetid",
 )
 
 BOTTLENECK_TERMS = (
@@ -147,7 +148,13 @@ class ActionTrackerChatResult:
 
 
 def _fold(value: str | None) -> str:
-    return str(value or "").casefold().strip()
+    return (
+        str(value or "")
+        .casefold()
+        .strip()
+        .lstrip("¿¡-*• ")
+        .strip()
+    )
 
 
 def _value(value, fallback="—"):
@@ -265,8 +272,6 @@ def _history_scope_text(
                     "quality",
                 )
             )
-            or "vencid" in _fold(text)
-            or "atras" in _fold(text)
         ):
             return text
 

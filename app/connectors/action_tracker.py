@@ -1,3 +1,4 @@
+from time import monotonic
 from urllib.parse import quote
 
 import httpx
@@ -14,6 +15,10 @@ class ActionTrackerConnector:
         self.base_url = settings.action_tracker_base_url.rstrip("/")
         self.token = settings.action_tracker_token
         self.timeout = settings.action_tracker_timeout_seconds
+        self._cache: dict[
+            tuple[str, tuple[tuple[str, str], ...]],
+            tuple[float, dict],
+        ] = {}
 
     @property
     def configured(self) -> bool:
@@ -23,15 +28,49 @@ class ActionTrackerConnector:
             and self.token
         )
 
+    def _cache_key(
+        self,
+        path: str,
+        params: dict | None,
+    ) -> tuple[str, tuple[tuple[str, str], ...]]:
+        normalized = tuple(
+            sorted(
+                (str(key), str(value))
+                for key, value in (params or {}).items()
+            )
+        )
+        return path, normalized
+
     async def _get(
         self,
         path: str,
         params: dict | None = None,
+        *,
+        cache_seconds: float = 0.0,
     ) -> dict:
         if not self.configured:
             raise ActionTrackerError(
                 "La integración con Action Tracker no está configurada."
             )
+
+        cache_key = self._cache_key(
+            path,
+            params,
+        )
+
+        if cache_seconds > 0:
+            cached = self._cache.get(cache_key)
+
+            if cached:
+                cached_at, data = cached
+
+                if monotonic() - cached_at < cache_seconds:
+                    return data
+
+                self._cache.pop(
+                    cache_key,
+                    None,
+                )
 
         headers = {
             "X-AT-Token": self.token,
@@ -65,14 +104,24 @@ class ActionTrackerConnector:
             ) from exc
 
         try:
-            return response.json()
+            data = response.json()
         except ValueError as exc:
             raise ActionTrackerError(
                 "Action Tracker respondió con datos no válidos."
             ) from exc
 
+        if cache_seconds > 0:
+            self._cache[cache_key] = (
+                monotonic(),
+                data,
+            )
+
+        return data
+
     async def health(self) -> dict:
-        return await self._get("/api/ai/health")
+        return await self._get(
+            "/api/ai/health"
+        )
 
     async def list_actions(
         self,
@@ -103,28 +152,45 @@ class ActionTrackerConnector:
         data = await self._get(
             "/api/ai/actions",
             params=params,
+            cache_seconds=(
+                settings.action_tracker_cache_seconds
+            ),
         )
         return data.get("actions", [])
 
     async def get_action(self, code: str) -> dict:
         safe_code = quote(code, safe="")
         return await self._get(
-            f"/api/ai/actions/{safe_code}"
+            f"/api/ai/actions/{safe_code}",
+            cache_seconds=(
+                settings.action_tracker_cache_seconds
+            ),
         )
 
     async def list_npi_projects(self) -> list[dict]:
-        data = await self._get("/api/ai/npi")
+        data = await self._get(
+            "/api/ai/npi",
+            cache_seconds=(
+                settings.action_tracker_cache_seconds
+            ),
+        )
         return data.get("projects", [])
 
     async def get_npi(self, code: str) -> dict:
         safe_code = quote(code, safe="")
         return await self._get(
-            f"/api/ai/npi/{safe_code}"
+            f"/api/ai/npi/{safe_code}",
+            cache_seconds=(
+                settings.action_tracker_cache_seconds
+            ),
         )
 
     async def pending_approvals(self) -> list[dict]:
         data = await self._get(
-            "/api/ai/pending-approvals"
+            "/api/ai/pending-approvals",
+            cache_seconds=(
+                settings.action_tracker_cache_seconds
+            ),
         )
         return data.get("approvals", [])
 
@@ -132,6 +198,9 @@ class ActionTrackerConnector:
         data = await self._get(
             "/api/ai/events",
             params={"days": days},
+            cache_seconds=(
+                settings.action_tracker_cache_seconds
+            ),
         )
         return data.get("events", [])
 
