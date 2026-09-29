@@ -376,9 +376,18 @@ async def bottlenecks(
     approvals = await action_tracker.pending_approvals()
 
     if filters:
+        approval_filters = {
+            key: value
+            for key, value in filters.items()
+            if key in {
+                "departamento",
+                "area",
+                "asignado",
+            }
+        }
         approvals = apply_filters(
             approvals,
-            filters,
+            approval_filters,
         )
 
         allowed_codes = {
