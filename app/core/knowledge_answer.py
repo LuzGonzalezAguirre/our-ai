@@ -247,27 +247,12 @@ def build_knowledge_answer(
     )
 
     selected: list[str] = []
-    seen = set()
-    total_chars = 0
 
-    for score, _order, text in candidates:
-        if score < 3:
-            continue
+    if candidates:
+        best_score, _order, best_text = candidates[0]
 
-        key = _normalize(text)
-
-        if key in seen:
-            continue
-
-        if total_chars + len(text) > 1800:
-            continue
-
-        seen.add(key)
-        selected.append(text)
-        total_chars += len(text)
-
-        if len(selected) >= 3:
-            break
+        if best_score >= 3:
+            selected.append(best_text)
 
     if not selected:
         return (
