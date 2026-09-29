@@ -3,6 +3,8 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.connectors.action_tracker import ActionTrackerError
+from app.core.action_tracker_context import build_action_tracker_context
 from app.core.config import settings
 from app.core.conversations import conversation_store
 from app.core.knowledge import knowledge_store
@@ -30,8 +32,13 @@ SYSTEM_PROMPT = (
     "Responde de manera clara, precisa y útil. "
     "Responde en el idioma utilizado por el usuario. "
     "Cuando recibas conocimiento del proyecto, úsalo solamente "
-    "si es relevante para la pregunta. No inventes datos que no "
-    "aparezcan en el conocimiento recuperado."
+    "si es relevante para la pregunta. "
+    "Cuando recibas datos live de Action Tracker, esos datos son "
+    "la fuente de verdad para acciones, responsables, fechas, avances "
+    "y métricas. No inventes filas, conteos, causas ni responsables. "
+    "Distingue hechos medidos de interpretaciones. "
+    "No realices ni prometas modificaciones de Action Tracker: "
+    "esta integración es de solo lectura."
 )
 
 
@@ -113,8 +120,22 @@ async def chat(
             top_k=4,
         )
 
+        action_tracker_context = (
+            await build_action_tracker_context(
+                request.message
+            )
+        )
+
     except HTTPException:
         raise
+    except ActionTrackerError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No se pudo consultar Action Tracker: "
+                + str(exc)
+            ),
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
@@ -141,6 +162,21 @@ async def chat(
 
     if knowledge_message:
         messages.append(knowledge_message)
+
+    if action_tracker_context:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Datos live de Action Tracker. "
+                    "Úsalos para responder la pregunta actual. "
+                    "Los cálculos incluidos ya fueron hechos por "
+                    "el Analytics Engine; no los recalcules ni "
+                    "inventes valores faltantes.\n\n"
+                    + action_tracker_context
+                ),
+            }
+        )
 
     messages.extend(
         [
@@ -189,6 +225,7 @@ async def chat(
         conversation_id=conversation_id,
         project_id=project_id,
         knowledge_chunks_used=len(knowledge_chunks),
+        action_tracker_used=bool(action_tracker_context),
     )
 
 

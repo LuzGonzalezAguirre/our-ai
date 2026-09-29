@@ -33,6 +33,7 @@ class ChatResponse(BaseModel):
     conversation_id: str
     project_id: str
     knowledge_chunks_used: int = 0
+    action_tracker_used: bool = False
 
 
 class ConversationSummary(BaseModel):
