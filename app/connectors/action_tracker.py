@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 import httpx
 
 from app.core.config import settings
@@ -105,9 +107,7 @@ class ActionTrackerConnector:
         return data.get("actions", [])
 
     async def get_action(self, code: str) -> dict:
-        safe_code = httpx.URL("").copy_with(
-            path=f"/{code}"
-        ).path.lstrip("/")
+        safe_code = quote(code, safe="")
         return await self._get(
             f"/api/ai/actions/{safe_code}"
         )
