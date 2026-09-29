@@ -178,6 +178,14 @@ function escapeHtml(value) {
         .replaceAll("'", "&#039;");
 }
 
+function normalizeAssistantMarkdown(value) {
+    return String(value ?? "")
+        .replace(/\\\\([#*_-])/g, "$1")
+        .replace(/\\\\(\d+\\.)/g, "$1")
+        .replace(/\\\\$/gm, "")
+        .replace(/[ \t]+$/gm, "");
+}
+
 function renderInline(value) {
     let html = escapeHtml(value);
     const inlineCodePattern = new RegExp(
@@ -200,6 +208,29 @@ function renderInline(value) {
     return html;
 }
 
+function appendTextLine(container, line) {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+        return;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,4})\s+(.+)$/);
+
+    if (headingMatch) {
+        const heading = document.createElement(
+            headingMatch[1].length <= 2 ? "h3" : "h4"
+        );
+        heading.innerHTML = renderInline(headingMatch[2]);
+        container.appendChild(heading);
+        return;
+    }
+
+    const paragraph = document.createElement("p");
+    paragraph.innerHTML = renderInline(trimmed);
+    container.appendChild(paragraph);
+}
+
 function appendTextBlock(container, block) {
     const trimmed = block.trim();
 
@@ -208,47 +239,65 @@ function appendTextBlock(container, block) {
     }
 
     const lines = trimmed.split("\n");
+    let list = null;
+    let listType = null;
 
-    if (lines.every((line) => /^[-*]\s+/.test(line.trim()))) {
-        const list = document.createElement("ul");
+    const flushList = () => {
+        if (list) {
+            container.appendChild(list);
+            list = null;
+            listType = null;
+        }
+    };
 
-        for (const line of lines) {
-            const item = document.createElement("li");
-            item.innerHTML = renderInline(
-                line.trim().replace(/^[-*]\s+/, "")
-            );
-            list.appendChild(item);
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+
+        if (!line) {
+            flushList();
+            continue;
         }
 
-        container.appendChild(list);
-        return;
-    }
+        const bulletMatch = line.match(/^[-*]\s+(.+)$/);
+        const orderedMatch = line.match(/^\d+\.\s+(.+)$/);
 
-    if (lines.every((line) => /^\d+\.\s+/.test(line.trim()))) {
-        const list = document.createElement("ol");
+        if (bulletMatch) {
+            if (listType !== "ul") {
+                flushList();
+                list = document.createElement("ul");
+                listType = "ul";
+            }
 
-        for (const line of lines) {
             const item = document.createElement("li");
-            item.innerHTML = renderInline(
-                line.trim().replace(/^\d+\.\s+/, "")
-            );
+            item.innerHTML = renderInline(bulletMatch[1]);
             list.appendChild(item);
+            continue;
         }
 
-        container.appendChild(list);
-        return;
+        if (orderedMatch) {
+            if (listType !== "ol") {
+                flushList();
+                list = document.createElement("ol");
+                listType = "ol";
+            }
+
+            const item = document.createElement("li");
+            item.innerHTML = renderInline(orderedMatch[1]);
+            list.appendChild(item);
+            continue;
+        }
+
+        flushList();
+        appendTextLine(container, line);
     }
 
-    const paragraph = document.createElement("p");
-    paragraph.innerHTML = lines
-        .map((line) => renderInline(line))
-        .join("<br>");
-    container.appendChild(paragraph);
+    flushList();
 }
 
 function renderAssistantContent(container, content) {
+    const normalized = normalizeAssistantMarkdown(content);
     const fence = String.fromCharCode(96).repeat(3);
-    const segments = String(content ?? "").split(fence);
+    const segments = normalized.split(fence);
 
     segments.forEach((segment, index) => {
         if (index % 2 === 1) {
