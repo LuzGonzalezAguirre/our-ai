@@ -162,6 +162,94 @@ def apply_filters(
     return result
 
 
+async def select_actions(
+    *,
+    filters: dict[str, str] | None = None,
+    overdue_only: bool = False,
+    stale_only: bool = False,
+    due_within_days: int | None = None,
+    auto_only: bool = False,
+    created_within_days: int | None = None,
+    open_only: bool = True,
+    stale_days: int = 7,
+) -> list[dict]:
+    raw = await action_tracker.list_actions(
+        open_only=False,
+    )
+    actions = [
+        enrich_action(item, stale_days=stale_days)
+        for item in raw
+    ]
+
+    if filters:
+        actions = apply_filters(actions, filters)
+
+    today = date.today()
+    selected = []
+
+    for action in actions:
+        if open_only and not action["is_open"]:
+            continue
+
+        if overdue_only and not action["is_overdue"]:
+            continue
+
+        if stale_only and not action["is_stale"]:
+            continue
+
+        if auto_only and not bool(
+            _int(action.get("generado_automaticamente"))
+        ):
+            continue
+
+        if due_within_days is not None:
+            due = _date(
+                action.get("fecha_fin")
+                or action.get("fecha_fin_base")
+            )
+            if (
+                due is None
+                or due < today
+                or due > today + timedelta(days=due_within_days)
+            ):
+                continue
+
+        if created_within_days is not None:
+            created = _date(action.get("creado_en"))
+            if (
+                created is None
+                or created < today - timedelta(days=created_within_days)
+            ):
+                continue
+
+        selected.append(action)
+
+    if overdue_only:
+        selected.sort(
+            key=lambda item: item.get("days_overdue") or 0,
+            reverse=True,
+        )
+    elif stale_only:
+        selected.sort(
+            key=lambda item: item.get("days_since_update") or 0,
+            reverse=True,
+        )
+    elif due_within_days is not None:
+        selected.sort(
+            key=lambda item: (
+                _date(item.get("fecha_fin") or item.get("fecha_fin_base"))
+                or date.max
+            )
+        )
+    else:
+        selected.sort(
+            key=lambda item: str(item.get("actualizado_en") or ""),
+            reverse=True,
+        )
+
+    return selected
+
+
 async def overview(
     *,
     stale_days: int = 7,
