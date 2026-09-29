@@ -190,7 +190,8 @@ def apply_filters(
     return result
 
 
-async def select_actions(
+def select_enriched_actions(
+    actions: list[dict],
     *,
     filters: dict[str, str] | None = None,
     overdue_only: bool = False,
@@ -201,23 +202,17 @@ async def select_actions(
     created_within_days: int | None = None,
     created_this_week: bool = False,
     open_only: bool = True,
-    stale_days: int = 7,
 ) -> list[dict]:
-    raw = await action_tracker.list_actions(
-        open_only=False,
+    selected_actions = (
+        apply_filters(actions, filters)
+        if filters
+        else list(actions)
     )
-    actions = [
-        enrich_action(item, stale_days=stale_days)
-        for item in raw
-    ]
-
-    if filters:
-        actions = apply_filters(actions, filters)
 
     today = date.today()
     selected = []
 
-    for action in actions:
+    for action in selected_actions:
         if open_only and not action["is_open"]:
             continue
 
@@ -300,6 +295,41 @@ async def select_actions(
         )
 
     return selected
+
+
+async def select_actions(
+    *,
+    filters: dict[str, str] | None = None,
+    overdue_only: bool = False,
+    stale_only: bool = False,
+    due_within_days: int | None = None,
+    due_this_week: bool = False,
+    auto_only: bool = False,
+    created_within_days: int | None = None,
+    created_this_week: bool = False,
+    open_only: bool = True,
+    stale_days: int = 7,
+) -> list[dict]:
+    raw = await action_tracker.list_actions(
+        open_only=False,
+    )
+    actions = [
+        enrich_action(item, stale_days=stale_days)
+        for item in raw
+    ]
+
+    return select_enriched_actions(
+        actions,
+        filters=filters,
+        overdue_only=overdue_only,
+        stale_only=stale_only,
+        due_within_days=due_within_days,
+        due_this_week=due_this_week,
+        auto_only=auto_only,
+        created_within_days=created_within_days,
+        created_this_week=created_this_week,
+        open_only=open_only,
+    )
 
 
 async def overview(
