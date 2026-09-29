@@ -1,8 +1,26 @@
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
+import re
 from typing import Iterable
 
 from app.connectors.action_tracker import action_tracker
+
+
+BU_RE = re.compile(r"\\bBU:\\s*([^|\\n]+)", re.IGNORECASE)
+WC_RE = re.compile(r"\\bWC:\\s*([^|\\n]+)", re.IGNORECASE)
+REASON_RE = re.compile(r"^Razón:\\s*([^|\\n]+)", re.IGNORECASE | re.MULTILINE)
+
+
+def _extract(pattern: re.Pattern, value: str | None) -> str | None:
+    if not value:
+        return None
+
+    match = pattern.search(str(value))
+    if not match:
+        return None
+
+    result = match.group(1).strip()
+    return result or None
 
 
 def _date(value) -> date | None:
@@ -70,7 +88,15 @@ def enrich_action(
     )
 
     result = dict(action)
+    description = str(action.get("descripcion") or "")
+    business_unit = _extract(BU_RE, description)
+    workcenter = _extract(WC_RE, description)
+    scrap_reason = _extract(REASON_RE, description)
+
     result.update({
+        "business_unit": business_unit,
+        "workcenter": workcenter,
+        "scrap_reason": scrap_reason,
         "is_open": is_open,
         "is_overdue": bool(
             is_open and due and due < today
@@ -104,6 +130,7 @@ def infer_filters(
         "categoria",
         "asignado",
         "estado",
+        "business_unit",
     )
 
     for field in dimensions:
@@ -135,6 +162,7 @@ def apply_filters(
         "area": ("area",),
         "categoria": ("categoria",),
         "estado": ("estado",),
+        "business_unit": ("business_unit",),
     }
 
     result = []
