@@ -37,6 +37,7 @@ ACTION_TRACKER_TERMS = (
     "scrap",
     "mantenimiento",
     "maintenance",
+    "mtto",
     "manufacturing",
     "manufactura",
     "quality",
