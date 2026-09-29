@@ -23,6 +23,10 @@ LOOKUP_PREFIXES = (
     "quien debe ser",
     "explícame por qué",
     "explicame por que",
+    "explícame cómo",
+    "explicame como",
+    "qué quiere decir",
+    "que quiere decir",
 )
 
 STOPWORDS = {
