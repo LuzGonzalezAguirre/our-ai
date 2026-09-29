@@ -79,7 +79,7 @@ def _clean_question(question: str) -> str:
         str(question or "")
         .casefold()
         .strip()
-        .lstrip("¿¡")
+        .lstrip("¿¡-*• ")
         .strip()
     )
 
