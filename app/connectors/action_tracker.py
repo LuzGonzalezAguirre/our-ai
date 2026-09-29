@@ -112,6 +112,16 @@ class ActionTrackerConnector:
             f"/api/ai/actions/{safe_code}"
         )
 
+    async def list_npi_projects(self) -> list[dict]:
+        data = await self._get("/api/ai/npi")
+        return data.get("projects", [])
+
+    async def get_npi(self, code: str) -> dict:
+        safe_code = quote(code, safe="")
+        return await self._get(
+            f"/api/ai/npi/{safe_code}"
+        )
+
     async def pending_approvals(self) -> list[dict]:
         data = await self._get(
             "/api/ai/pending-approvals"
