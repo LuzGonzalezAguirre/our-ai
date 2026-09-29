@@ -8,6 +8,10 @@ from app.core.action_tracker_context import build_action_tracker_result
 from app.core.config import settings
 from app.core.conversations import conversation_store
 from app.core.knowledge import knowledge_store
+from app.core.knowledge_answer import (
+    build_knowledge_answer,
+    is_knowledge_lookup,
+)
 from app.core.projects import project_store
 from app.providers.ollama import OllamaProvider
 from app.schemas.chat import (
@@ -34,10 +38,20 @@ SYSTEM_PROMPT = (
     "Sé conciso salvo que el usuario pida detalle. "
     "Cuando recibas conocimiento del proyecto, úsalo solamente "
     "si es relevante para la pregunta. "
+    "Para preguntas sobre reglas, definiciones o procesos internos "
+    "de SSI, responde únicamente con lo soportado por el conocimiento "
+    "recuperado. Si el contexto no contiene la respuesta, dilo "
+    "explícitamente en vez de completar con conocimiento general. "
     "Cuando recibas datos live de Action Tracker, esos datos son "
     "la fuente de verdad para acciones, responsables, fechas, avances "
     "y métricas. No inventes filas, conteos, causas ni responsables. "
     "Distingue hechos medidos de interpretaciones. "
+    "Nunca conviertas un conteo menor en el número solicitado por el "
+    "usuario; si existen menos resultados, indica cuántos existen. "
+    "No inventes causas raíz, criticidad, impacto, seguridad ni valor "
+    "si esos atributos no están presentes en los datos. "
+    "Usa Markdown normal sin escapar #, -, * ni otros marcadores con "
+    "backslashes. "
     "No realices ni prometas modificaciones de Action Tracker: "
     "esta integración es de solo lectura."
 )
@@ -140,8 +154,14 @@ async def chat(
             or str(uuid4())
         )
 
+        history = await conversation_store.get_messages(
+            conversation_id,
+            limit=settings.chat_history_messages,
+        )
+
         action_result = await build_action_tracker_result(
-            request.message
+            request.message,
+            history=history,
         )
 
     except HTTPException:
@@ -180,11 +200,6 @@ async def chat(
         )
 
     try:
-        history = await conversation_store.get_messages(
-            conversation_id,
-            limit=settings.chat_history_messages,
-        )
-
         if action_result.context:
             knowledge_chunks = []
         else:
@@ -206,6 +221,31 @@ async def chat(
                 "No se pudo preparar el contexto del chat."
             ),
         ) from exc
+
+    if (
+        not action_result.context
+        and is_knowledge_lookup(request.message)
+    ):
+        response = build_knowledge_answer(
+            request.message,
+            knowledge_chunks,
+        )
+
+        await _save_exchange(
+            conversation_id=conversation_id,
+            project_id=project_id,
+            user_message=request.message,
+            assistant_message=response,
+        )
+
+        return ChatResponse(
+            response=response,
+            model="RAG local",
+            conversation_id=conversation_id,
+            project_id=project_id,
+            knowledge_chunks_used=len(knowledge_chunks),
+            action_tracker_used=False,
+        )
 
     messages = [
         {
