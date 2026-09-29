@@ -3,30 +3,89 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Our AI</title>
+    <meta name="color-scheme" content="light">
+    <title>Our AI · SSI</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <div class="app-shell">
-        <aside class="sidebar">
-            <div class="brand">
-                <div class="brand-mark">AI</div>
-                <div>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <button
+                id="sidebarToggle"
+                class="topbar-icon mobile-only"
+                type="button"
+                aria-label="Abrir conversaciones"
+                aria-controls="sidebar"
+                aria-expanded="false"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16M4 12h16M4 17h16"></path>
+                </svg>
+            </button>
+
+            <a class="brand" href="/" aria-label="Our AI">
+                <span class="brand-mark">AI</span>
+                <span class="brand-copy">
                     <strong>Our AI</strong>
-                    <span>Local AI Core</span>
+                    <small>SSI Intelligence</small>
+                </span>
+            </a>
+
+            <nav class="topnav" aria-label="Navegación principal">
+                <button class="topnav-link active" type="button" data-nav-chat>
+                    Chat
+                </button>
+                <button class="topnav-link" type="button" id="knowledgeNavButton">
+                    Conocimiento
+                </button>
+                <button class="topnav-link" type="button" id="projectNavButton">
+                    Proyectos
+                </button>
+            </nav>
+
+            <div class="topbar-status">
+                <span id="integrationBadge" class="status-chip neutral">
+                    Action Tracker
+                </span>
+                <span id="modelBadge" class="status-chip">Qwen</span>
+                <div class="system-status" title="Estado del sistema">
+                    <span id="statusDot" class="status-dot"></span>
+                    <span id="statusText">Comprobando</span>
                 </div>
             </div>
+        </div>
+    </header>
 
-            <div class="project-block">
-                <div class="project-label-row">
-                    <span>Proyecto</span>
+    <div class="workspace">
+        <div id="sidebarBackdrop" class="sidebar-backdrop" hidden></div>
+
+        <aside id="sidebar" class="sidebar" aria-label="Conversaciones">
+            <div class="sidebar-head">
+                <div>
+                    <span class="section-kicker">Workspace</span>
+                    <strong>Conversaciones</strong>
+                </div>
+                <button
+                    id="sidebarClose"
+                    class="sidebar-close mobile-only"
+                    type="button"
+                    aria-label="Cerrar conversaciones"
+                >
+                    ×
+                </button>
+            </div>
+
+            <section class="project-card" aria-label="Proyecto actual">
+                <div class="project-card-top">
+                    <span>Proyecto activo</span>
                     <button
                         id="newProjectButton"
-                        class="mini-button"
+                        class="mini-action"
                         type="button"
                         title="Crear proyecto"
+                        aria-label="Crear proyecto"
                     >
-                        ＋
+                        +
                     </button>
                 </div>
 
@@ -38,27 +97,36 @@
 
                 <button
                     id="knowledgeButton"
-                    class="knowledge-button"
+                    class="project-link"
                     type="button"
                 >
-                    Conocimiento
-                    <span>↗</span>
+                    <span>
+                        <strong>Conocimiento</strong>
+                        <small>Fuentes y contexto del proyecto</small>
+                    </span>
+                    <span aria-hidden="true">›</span>
                 </button>
-            </div>
+            </section>
 
             <button id="newChatButton" class="new-chat-button" type="button">
-                <span>＋</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14"></path>
+                </svg>
                 Nueva conversación
             </button>
 
-            <div class="sidebar-label">Conversaciones</div>
+            <div class="conversation-heading">
+                <span>Recientes</span>
+                <span id="conversationCount">0</span>
+            </div>
+
             <div id="conversationList" class="conversation-list"></div>
 
             <div class="sidebar-footer">
-                <div class="status-row">
-                    <span id="statusDot" class="status-dot"></span>
+                <div class="footer-status">
+                    <span id="statusDotSide" class="status-dot"></span>
                     <div>
-                        <strong id="statusText">Comprobando...</strong>
+                        <strong id="statusTextSide">Comprobando sistema</strong>
                         <span id="statusDetail">Servidor local</span>
                     </div>
                 </div>
@@ -67,19 +135,20 @@
 
         <main class="chat-panel">
             <header class="chat-header">
-                <div>
+                <div class="chat-title-block">
                     <span id="projectEyebrow" class="eyebrow">GENERAL</span>
                     <h1 id="conversationTitle">Nueva conversación</h1>
+                    <span id="conversationMeta" class="conversation-meta">
+                        Asistente local · Solo lectura en Action Tracker
+                    </span>
                 </div>
 
-                <div class="header-actions">
-                    <span id="ragBadge" class="model-badge">RAG local</span>
-                    <span id="modelBadge" class="model-badge">Qwen</span>
+                <div class="chat-actions">
+                    <span id="ragBadge" class="context-badge">RAG local</span>
                     <button
                         id="deleteChatButton"
-                        class="icon-button"
+                        class="secondary-button danger-text"
                         type="button"
-                        title="Eliminar conversación"
                         disabled
                     >
                         Eliminar
@@ -87,24 +156,36 @@
                 </div>
             </header>
 
-            <section id="messages" class="messages">
+            <section id="messages" class="messages" aria-live="polite">
                 <div id="emptyState" class="empty-state">
-                    <div class="empty-orb">AI</div>
-                    <h2>Pregunta dentro de tu proyecto</h2>
+                    <div class="empty-mark">AI</div>
+                    <span class="empty-kicker">OUR AI · SSI</span>
+                    <h2>¿Qué necesitas revisar?</h2>
                     <p>
-                        Cada proyecto mantiene sus conversaciones y su
-                        conocimiento separados.
+                        Consulta Action Tracker, analiza actividad operativa o usa
+                        el conocimiento del proyecto desde un solo lugar.
                     </p>
 
                     <div class="suggestions">
                         <button class="suggestion" type="button">
-                            ¿Qué conocimiento tienes en este proyecto?
+                            <span class="suggestion-label">Action Tracker</span>
+                            <strong>¿Qué acciones están vencidas?</strong>
+                            <small>Consulta acciones abiertas y días de atraso.</small>
                         </button>
                         <button class="suggestion" type="button">
-                            Resume lo que sabes de este proyecto
+                            <span class="suggestion-label">Análisis</span>
+                            <strong>¿Qué nos está deteniendo esta semana?</strong>
+                            <small>Revisa vencidas, estancadas y aprobaciones.</small>
                         </button>
                         <button class="suggestion" type="button">
-                            Ayúdame a organizar el conocimiento
+                            <span class="suggestion-label">Tendencias</span>
+                            <strong>Dame las tendencias de los últimos 3 meses.</strong>
+                            <small>Compara aperturas, cierres y movimientos.</small>
+                        </button>
+                        <button class="suggestion" type="button">
+                            <span class="suggestion-label">Proyecto</span>
+                            <strong>Resume lo que sabes de este proyecto.</strong>
+                            <small>Usa las fuentes cargadas en Conocimiento.</small>
                         </button>
                     </div>
                 </div>
@@ -116,36 +197,41 @@
                         id="messageInput"
                         rows="1"
                         maxlength="12000"
-                        placeholder="Escribe un mensaje..."
+                        placeholder="Pregunta sobre acciones, tendencias, NPI, Scrap o tu proyecto..."
                         aria-label="Mensaje"
                     ></textarea>
                     <button
                         id="sendButton"
                         class="send-button"
                         type="submit"
-                        aria-label="Enviar"
+                        aria-label="Enviar mensaje"
                     >
-                        ↑
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"></path>
+                        </svg>
                     </button>
                 </form>
-                <p class="composer-note">
-                    Chat y embeddings ejecutándose localmente con Ollama.
-                </p>
+                <div class="composer-meta">
+                    <span>Enter para enviar · Shift + Enter para nueva línea</span>
+                    <span id="composerSource">Qwen local + RAG</span>
+                </div>
             </div>
         </main>
     </div>
 
     <div id="projectModal" class="modal-backdrop" hidden>
-        <section class="modal-card">
+        <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
             <div class="modal-header">
                 <div>
-                    <span class="eyebrow">PROJECT</span>
-                    <h2>Nuevo proyecto</h2>
+                    <span class="section-kicker">Proyecto</span>
+                    <h2 id="projectModalTitle">Nuevo proyecto</h2>
+                    <p>Separa conversaciones y conocimiento por contexto.</p>
                 </div>
                 <button
                     class="modal-close"
                     type="button"
                     data-close-modal="projectModal"
+                    aria-label="Cerrar"
                 >
                     ×
                 </button>
@@ -168,35 +254,46 @@
                         id="projectDescription"
                         rows="4"
                         maxlength="500"
-                        placeholder="¿Qué va a conocer y resolver este proyecto?"
+                        placeholder="Qué información y contexto manejará este proyecto."
                     ></textarea>
                 </label>
 
-                <button class="primary-button" type="submit">
-                    Crear proyecto
-                </button>
+                <div class="form-actions">
+                    <button
+                        class="secondary-button"
+                        type="button"
+                        data-close-modal="projectModal"
+                    >
+                        Cancelar
+                    </button>
+                    <button class="primary-button" type="submit">
+                        Crear proyecto
+                    </button>
+                </div>
             </form>
         </section>
     </div>
 
     <div id="knowledgeModal" class="modal-backdrop" hidden>
-        <section class="modal-card modal-card-wide">
+        <section class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="knowledgeProjectTitle">
             <div class="modal-header">
                 <div>
-                    <span class="eyebrow">KNOWLEDGE</span>
+                    <span class="section-kicker">Conocimiento</span>
                     <h2 id="knowledgeProjectTitle">Conocimiento</h2>
+                    <p>Agrega información que el chat podrá recuperar mediante RAG.</p>
                 </div>
                 <button
                     class="modal-close"
                     type="button"
                     data-close-modal="knowledgeModal"
+                    aria-label="Cerrar"
                 >
                     ×
                 </button>
             </div>
 
             <div class="knowledge-layout">
-                <form id="knowledgeForm" class="stack-form">
+                <form id="knowledgeForm" class="stack-form knowledge-form">
                     <label>
                         Título
                         <input
@@ -214,30 +311,55 @@
                             rows="12"
                             maxlength="120000"
                             required
-                            placeholder="Pega aquí información, reglas, procedimientos, notas o documentación..."
+                            placeholder="Pega aquí procedimientos, reglas, notas o documentación..."
                         ></textarea>
                     </label>
 
-                    <button
-                        id="knowledgeSubmitButton"
-                        class="primary-button"
-                        type="submit"
-                    >
-                        Alimentar proyecto
-                    </button>
-
-                    <p class="form-hint">
-                        El texto se fragmenta y vectoriza localmente.
-                    </p>
+                    <div class="knowledge-submit-row">
+                        <p class="form-hint">
+                            Se fragmenta y vectoriza localmente.
+                        </p>
+                        <button
+                            id="knowledgeSubmitButton"
+                            class="primary-button"
+                            type="submit"
+                        >
+                            Agregar conocimiento
+                        </button>
+                    </div>
                 </form>
 
                 <div class="knowledge-existing">
-                    <div class="sidebar-label">Fuentes guardadas</div>
+                    <div class="knowledge-title-row">
+                        <div>
+                            <span class="section-kicker">Fuentes</span>
+                            <strong>Guardadas</strong>
+                        </div>
+                        <span id="knowledgeCount" class="count-badge">0</span>
+                    </div>
                     <div id="knowledgeList" class="knowledge-list"></div>
                 </div>
             </div>
         </section>
     </div>
+
+    <div id="confirmModal" class="modal-backdrop" hidden>
+        <section class="modal-card modal-card-small" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+            <div class="confirm-icon">!</div>
+            <h2 id="confirmTitle">Confirmar</h2>
+            <p id="confirmMessage">¿Deseas continuar?</p>
+            <div class="form-actions">
+                <button id="confirmCancel" class="secondary-button" type="button">
+                    Cancelar
+                </button>
+                <button id="confirmAccept" class="danger-button" type="button">
+                    Eliminar
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
     <script src="/static/app.js"></script>
 </body>
