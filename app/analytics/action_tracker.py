@@ -219,7 +219,7 @@ async def select_actions(
                 or due > week_end
             ):
                 continue
-        elif due_this_week or due_within_days is not None:
+        elif due_within_days is not None:
             if (
                 due is None
                 or due < today
@@ -258,7 +258,7 @@ async def select_actions(
             key=lambda item: item.get("days_since_update") or 0,
             reverse=True,
         )
-    elif due_within_days is not None:
+    elif due_this_week or due_within_days is not None:
         selected.sort(
             key=lambda item: (
                 _date(item.get("fecha_fin") or item.get("fecha_fin_base"))
