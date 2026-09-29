@@ -46,6 +46,13 @@ ACTION_TRACKER_TERMS = (
     "actualizacion",
     "actualización",
     "reprogram",
+    "volvo",
+    "cummins",
+    "eaton",
+    "john deere",
+    "harley",
+    "harley-davidson",
+    "tulc",
 )
 
 BOTTLENECK_TERMS = (
@@ -202,7 +209,7 @@ async def build_action_tracker_context(
         ):
             actions = await select_actions(
                 filters=filters,
-                due_within_days=7,
+                due_this_week=True,
             )
             payload = {
                 "source": "Action Tracker live",
@@ -224,9 +231,7 @@ async def build_action_tracker_context(
             actions = await select_actions(
                 filters=filters,
                 auto_only=True,
-                created_within_days=(
-                    7 if "semana" in folded else None
-                ),
+                created_this_week=("semana" in folded),
                 open_only=False,
             )
             payload = {
@@ -263,10 +268,9 @@ async def build_action_tracker_context(
         elif (
             "vencid" in folded
             or "atrasad" in folded
-        ) and not any(
-            term in folded
-            for term in BOTTLENECK_TERMS
-            if term in ("deten", "cuello")
+        ) and (
+            "quien" not in folded
+            and "quién" not in folded
         ):
             actions = await select_actions(
                 filters=filters,
