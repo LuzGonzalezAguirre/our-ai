@@ -42,3 +42,18 @@ class KnowledgeResponse(BaseModel):
     title: str
     chunk_count: int
     created_at: datetime
+
+
+class KnowledgeChunkResponse(BaseModel):
+    index: int
+    content: str
+
+
+class KnowledgeDetailResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    content: str
+    chunk_count: int
+    chunks: list[KnowledgeChunkResponse]
+    created_at: datetime

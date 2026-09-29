@@ -106,9 +106,6 @@ class KnowledgeStore:
         async with SessionLocal() as session:
             async with session.begin():
                 session.add(source)
-
-                # Force the source INSERT before inserting child chunks.
-                # This keeps the FK dependency deterministic in PostgreSQL.
                 await session.flush()
 
                 chunk_records = [
@@ -155,6 +152,34 @@ class KnowledgeStore:
                 for source, chunk_count in result.all()
             ]
 
+    async def get_source_detail(
+        self,
+        project_id: str,
+        source_id: str,
+    ) -> tuple[KnowledgeSource, list[KnowledgeChunk]] | None:
+        async with SessionLocal() as session:
+            source = await session.get(
+                KnowledgeSource,
+                source_id,
+            )
+
+            if (
+                source is None
+                or source.project_id != project_id
+            ):
+                return None
+
+            result = await session.execute(
+                select(KnowledgeChunk)
+                .where(
+                    KnowledgeChunk.project_id == project_id,
+                    KnowledgeChunk.source_id == source_id,
+                )
+                .order_by(KnowledgeChunk.chunk_index)
+            )
+            chunks = list(result.scalars().all())
+            return source, chunks
+
     async def delete_source(
         self,
         project_id: str,
@@ -184,7 +209,7 @@ class KnowledgeStore:
         self,
         project_id: str,
         query: str,
-        top_k: int = 4,
+        top_k: int = 3,
     ) -> list[tuple[KnowledgeChunk, float]]:
         async with SessionLocal() as session:
             result = await session.execute(

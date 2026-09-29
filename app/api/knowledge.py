@@ -6,7 +6,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.knowledge import knowledge_store
 from app.core.projects import project_store
 from app.schemas.projects import (
+    KnowledgeChunkResponse,
     KnowledgeCreate,
+    KnowledgeDetailResponse,
     KnowledgeResponse,
 )
 
@@ -40,7 +42,6 @@ def _database_error_detail(exc: SQLAlchemyError) -> str:
     if not detail:
         return original.__class__.__name__
 
-    # Avoid sending an excessively large SQL/parameter payload to the UI.
     return detail[:500]
 
 
@@ -76,6 +77,57 @@ async def list_knowledge(
         )
         for source, chunk_count in sources
     ]
+
+
+@router.get(
+    "/{source_id}",
+    response_model=KnowledgeDetailResponse,
+)
+async def knowledge_detail(
+    project_id: str,
+    source_id: str,
+) -> KnowledgeDetailResponse:
+    try:
+        await _require_project(project_id)
+        detail = await knowledge_store.get_source_detail(
+            project_id,
+            source_id,
+        )
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        logger.exception("Could not load knowledge detail")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No se pudo cargar el contenido de la fuente: "
+                + _database_error_detail(exc)
+            ),
+        ) from exc
+
+    if detail is None:
+        raise HTTPException(
+            status_code=404,
+            detail="La fuente de conocimiento no existe.",
+        )
+
+    source, chunks = detail
+
+    return KnowledgeDetailResponse(
+        id=source.id,
+        project_id=source.project_id,
+        title=source.title,
+        content=source.content,
+        chunk_count=len(chunks),
+        chunks=[
+            KnowledgeChunkResponse(
+                index=chunk.chunk_index,
+                content=chunk.content,
+            )
+            for chunk in chunks
+        ],
+        created_at=source.created_at,
+    )
 
 
 @router.post(

@@ -280,7 +280,7 @@
                 <div>
                     <span class="section-kicker">Conocimiento</span>
                     <h2 id="knowledgeProjectTitle">Conocimiento</h2>
-                    <p>Agrega información que el chat podrá recuperar mediante RAG.</p>
+                    <p>Revisa exactamente qué información conoce este proyecto y cómo se fragmenta para RAG.</p>
                 </div>
                 <button
                     class="modal-close"
@@ -290,6 +290,17 @@
                 >
                     ×
                 </button>
+            </div>
+
+            <div class="knowledge-scope-note">
+                <div>
+                    <strong>Conocimiento guardado</strong>
+                    <span>Texto que tú agregaste al proyecto y que permanece en PostgreSQL.</span>
+                </div>
+                <div>
+                    <strong>Action Tracker live</strong>
+                    <span>Se consulta al momento; sus acciones no se copian ni se entrenan aquí.</span>
+                </div>
             </div>
 
             <div class="knowledge-layout">
@@ -338,6 +349,33 @@
                         <span id="knowledgeCount" class="count-badge">0</span>
                     </div>
                     <div id="knowledgeList" class="knowledge-list"></div>
+
+                    <section id="knowledgeDetail" class="knowledge-detail" hidden>
+                        <div class="knowledge-detail-head">
+                            <div>
+                                <span class="section-kicker">Contenido conocido</span>
+                                <strong id="knowledgeDetailTitle">Fuente</strong>
+                                <span id="knowledgeDetailMeta"></span>
+                            </div>
+                            <button
+                                id="knowledgeDetailClose"
+                                class="secondary-button"
+                                type="button"
+                            >
+                                Ocultar
+                            </button>
+                        </div>
+
+                        <pre id="knowledgeDetailContent" class="knowledge-source-content"></pre>
+
+                        <details class="knowledge-chunks">
+                            <summary>
+                                Fragmentos usados por RAG
+                                <span id="knowledgeChunkCount">0</span>
+                            </summary>
+                            <div id="knowledgeChunkList" class="knowledge-chunk-list"></div>
+                        </details>
+                    </section>
                 </div>
             </div>
         </section>

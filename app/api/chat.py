@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.connectors.action_tracker import ActionTrackerError
-from app.core.action_tracker_context import build_action_tracker_context
+from app.core.action_tracker_context import build_action_tracker_result
 from app.core.config import settings
 from app.core.conversations import conversation_store
 from app.core.knowledge import knowledge_store
@@ -31,6 +31,7 @@ SYSTEM_PROMPT = (
     "Eres un asistente de inteligencia artificial. "
     "Responde de manera clara, precisa y útil. "
     "Responde en el idioma utilizado por el usuario. "
+    "Sé conciso salvo que el usuario pida detalle. "
     "Cuando recibas conocimiento del proyecto, úsalo solamente "
     "si es relevante para la pregunta. "
     "Cuando recibas datos live de Action Tracker, esos datos son "
@@ -63,6 +64,35 @@ def _knowledge_message(
             + "\n\n".join(sections)
         ),
     }
+
+
+async def _save_exchange(
+    *,
+    conversation_id: str,
+    project_id: str,
+    user_message: str,
+    assistant_message: str,
+) -> None:
+    try:
+        await conversation_store.append_exchange(
+            conversation_id=conversation_id,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            project_id=project_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "La IA respondió, pero no se pudo guardar "
+                "la conversación en PostgreSQL."
+            ),
+        ) from exc
 
 
 @router.post(
@@ -110,20 +140,8 @@ async def chat(
             or str(uuid4())
         )
 
-        history = await conversation_store.get_messages(
-            conversation_id
-        )
-
-        knowledge_chunks = await knowledge_store.retrieve(
-            project_id=project_id,
-            query=request.message,
-            top_k=4,
-        )
-
-        action_tracker_context = (
-            await build_action_tracker_context(
-                request.message
-            )
+        action_result = await build_action_tracker_result(
+            request.message
         )
 
     except HTTPException:
@@ -136,6 +154,46 @@ async def chat(
                 + str(exc)
             ),
         ) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No se pudo preparar el contexto del chat."
+            ),
+        ) from exc
+
+    if action_result.direct_answer:
+        await _save_exchange(
+            conversation_id=conversation_id,
+            project_id=project_id,
+            user_message=request.message,
+            assistant_message=action_result.direct_answer,
+        )
+
+        return ChatResponse(
+            response=action_result.direct_answer,
+            model=settings.ollama_model,
+            conversation_id=conversation_id,
+            project_id=project_id,
+            knowledge_chunks_used=0,
+            action_tracker_used=True,
+        )
+
+    try:
+        history = await conversation_store.get_messages(
+            conversation_id,
+            limit=settings.chat_history_messages,
+        )
+
+        if action_result.context:
+            knowledge_chunks = []
+        else:
+            knowledge_chunks = await knowledge_store.retrieve(
+                project_id=project_id,
+                query=request.message,
+                top_k=3,
+            )
+
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
@@ -163,7 +221,7 @@ async def chat(
     if knowledge_message:
         messages.append(knowledge_message)
 
-    if action_tracker_context:
+    if action_result.context:
         messages.append(
             {
                 "role": "system",
@@ -173,7 +231,7 @@ async def chat(
                     "Los cálculos incluidos ya fueron hechos por "
                     "el Analytics Engine; no los recalcules ni "
                     "inventes valores faltantes.\n\n"
-                    + action_tracker_context
+                    + action_result.context
                 ),
             }
         )
@@ -198,26 +256,12 @@ async def chat(
             detail=str(exc),
         ) from exc
 
-    try:
-        await conversation_store.append_exchange(
-            conversation_id=conversation_id,
-            user_message=request.message,
-            assistant_message=response,
-            project_id=project_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail=str(exc),
-        ) from exc
-    except SQLAlchemyError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "La IA respondió, pero no se pudo guardar "
-                "la conversación en PostgreSQL."
-            ),
-        ) from exc
+    await _save_exchange(
+        conversation_id=conversation_id,
+        project_id=project_id,
+        user_message=request.message,
+        assistant_message=response,
+    )
 
     return ChatResponse(
         response=response,
@@ -225,7 +269,7 @@ async def chat(
         conversation_id=conversation_id,
         project_id=project_id,
         knowledge_chunks_used=len(knowledge_chunks),
-        action_tracker_used=bool(action_tracker_context),
+        action_tracker_used=bool(action_result.context),
     )
 
 

@@ -30,20 +30,39 @@ class ConversationStore:
     async def get_messages(
         self,
         conversation_id: str,
+        limit: int | None = None,
     ) -> list[dict[str, str]]:
         async with SessionLocal() as session:
-            result = await session.execute(
-                select(Message)
-                .where(Message.conversation_id == conversation_id)
-                .order_by(Message.created_at, Message.id)
+            statement = select(Message).where(
+                Message.conversation_id == conversation_id
             )
+
+            if limit:
+                statement = (
+                    statement
+                    .order_by(
+                        Message.created_at.desc(),
+                        Message.id.desc(),
+                    )
+                    .limit(limit)
+                )
+                result = await session.execute(statement)
+                records = list(result.scalars().all())
+                records.reverse()
+            else:
+                statement = statement.order_by(
+                    Message.created_at,
+                    Message.id,
+                )
+                result = await session.execute(statement)
+                records = list(result.scalars().all())
 
             return [
                 {
                     "role": message.role,
                     "content": message.content,
                 }
-                for message in result.scalars().all()
+                for message in records
             ]
 
     async def get_project_id(

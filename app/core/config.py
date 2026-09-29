@@ -3,12 +3,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Our AI"
-    app_version: str = "0.4.0"
+    app_version: str = "0.5.0"
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:1.7b"
     ollama_embedding_model: str = "qwen3-embedding:0.6b"
     ollama_think: bool = False
+    ollama_timeout_seconds: float = 120.0
+    ollama_num_predict: int = 256
+    ollama_num_ctx: int = 4096
+    ollama_keep_alive: str = "30m"
+    chat_history_messages: int = 8
 
     database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5432/our_ai"

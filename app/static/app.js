@@ -47,6 +47,13 @@ const elements = {
     knowledgeList: document.getElementById("knowledgeList"),
     knowledgeCount: document.getElementById("knowledgeCount"),
     knowledgeProjectTitle: document.getElementById("knowledgeProjectTitle"),
+    knowledgeDetail: document.getElementById("knowledgeDetail"),
+    knowledgeDetailTitle: document.getElementById("knowledgeDetailTitle"),
+    knowledgeDetailMeta: document.getElementById("knowledgeDetailMeta"),
+    knowledgeDetailContent: document.getElementById("knowledgeDetailContent"),
+    knowledgeDetailClose: document.getElementById("knowledgeDetailClose"),
+    knowledgeChunkCount: document.getElementById("knowledgeChunkCount"),
+    knowledgeChunkList: document.getElementById("knowledgeChunkList"),
     sidebar: document.getElementById("sidebar"),
     sidebarToggle: document.getElementById("sidebarToggle"),
     sidebarClose: document.getElementById("sidebarClose"),
@@ -381,10 +388,67 @@ function renderProjects() {
     updateProjectHeader();
 }
 
+function clearKnowledgeDetail() {
+    elements.knowledgeDetail.hidden = true;
+    elements.knowledgeDetailTitle.textContent = "Fuente";
+    elements.knowledgeDetailMeta.textContent = "";
+    elements.knowledgeDetailContent.textContent = "";
+    elements.knowledgeChunkCount.textContent = "0";
+    elements.knowledgeChunkList.replaceChildren();
+}
+
+async function loadKnowledgeDetail(source) {
+    try {
+        const detail = await requestJson(
+            "/v1/projects/" +
+                encodeURIComponent(state.projectId) +
+                "/knowledge/" +
+                encodeURIComponent(source.id)
+        );
+
+        elements.knowledgeDetailTitle.textContent =
+            detail.title;
+        elements.knowledgeDetailMeta.textContent =
+            detail.chunk_count +
+            (detail.chunk_count === 1
+                ? " fragmento RAG"
+                : " fragmentos RAG");
+        elements.knowledgeDetailContent.textContent =
+            detail.content;
+        elements.knowledgeChunkCount.textContent =
+            String(detail.chunk_count);
+        elements.knowledgeChunkList.replaceChildren();
+
+        for (const chunk of detail.chunks) {
+            const item = document.createElement("div");
+            item.className = "knowledge-chunk";
+
+            const label = document.createElement("strong");
+            label.textContent =
+                "Fragmento " + (chunk.index + 1);
+
+            const text = document.createElement("p");
+            text.textContent = chunk.content;
+
+            item.append(label, text);
+            elements.knowledgeChunkList.appendChild(item);
+        }
+
+        elements.knowledgeDetail.hidden = false;
+        elements.knowledgeDetail.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+        });
+    } catch (error) {
+        notify(error.message, "error");
+    }
+}
+
 function renderKnowledge() {
     elements.knowledgeList.replaceChildren();
     elements.knowledgeCount.textContent =
         String(state.knowledge.length);
+    clearKnowledgeDetail();
 
     if (state.knowledge.length === 0) {
         const empty = document.createElement("div");
@@ -413,6 +477,17 @@ function renderKnowledge() {
                 : " fragmentos");
 
         info.append(title, meta);
+
+        const actions = document.createElement("div");
+        actions.className = "knowledge-item-actions";
+
+        const view = document.createElement("button");
+        view.type = "button";
+        view.className = "knowledge-view";
+        view.textContent = "Ver";
+        view.addEventListener("click", () => {
+            loadKnowledgeDetail(source);
+        });
 
         const remove = document.createElement("button");
         remove.type = "button";
@@ -454,7 +529,8 @@ function renderKnowledge() {
             }
         });
 
-        row.append(info, remove);
+        actions.append(view, remove);
+        row.append(info, actions);
         elements.knowledgeList.appendChild(row);
     }
 }
@@ -580,6 +656,8 @@ async function loadKnowledge() {
         renderKnowledge();
         return;
     }
+
+    clearKnowledgeDetail();
 
     state.knowledge = await requestJson(
         "/v1/projects/" +
@@ -882,6 +960,11 @@ elements.knowledgeButton.addEventListener(
 elements.knowledgeNavButton.addEventListener(
     "click",
     openKnowledge
+);
+
+elements.knowledgeDetailClose.addEventListener(
+    "click",
+    clearKnowledgeDetail
 );
 
 document
