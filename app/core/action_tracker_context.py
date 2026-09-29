@@ -10,6 +10,7 @@ from app.analytics.action_tracker import (
     infer_filters,
     overview,
     select_actions,
+    select_enriched_actions,
     trends,
 )
 from app.connectors.action_tracker import (
@@ -583,7 +584,8 @@ async def build_action_tracker_result(
             and "semana" in folded
             and "vencid" not in folded
         ):
-            actions = await select_actions(
+            actions = select_enriched_actions(
+                enriched,
                 filters=filters,
                 due_this_week=True,
             )
@@ -602,7 +604,8 @@ async def build_action_tracker_result(
             or "generadas por" in folded
             or "generados por" in folded
         ):
-            actions = await select_actions(
+            actions = select_enriched_actions(
+                enriched,
                 filters=filters,
                 auto_only=True,
                 created_this_week=("semana" in folded),
@@ -622,7 +625,8 @@ async def build_action_tracker_result(
             or "sin update" in folded
             or "estanc" in folded
         ) and "cuello" not in folded:
-            actions = await select_actions(
+            actions = select_enriched_actions(
+                enriched,
                 filters=filters,
                 stale_only=True,
             )
@@ -642,7 +646,8 @@ async def build_action_tracker_result(
             term in folded
             for term in ("deten", "cuello")
         ):
-            actions = await select_actions(
+            actions = select_enriched_actions(
+                enriched,
                 filters=filters,
                 overdue_only=True,
             )
