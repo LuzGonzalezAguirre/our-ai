@@ -302,6 +302,147 @@ def _detail_answer(data: dict, code: str) -> str:
     return "\n".join(lines)
 
 
+def _to_int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _npi_detail_answer(data: dict, code: str) -> str:
+    project = data.get("project") or {}
+    summary = data.get("summary") or {}
+    items = data.get("items") or []
+    parts = [
+        row.get("numero_parte")
+        for row in data.get("parts", [])
+        if row.get("numero_parte")
+    ]
+
+    lines = [
+        f"**{_value(project.get('codigo'), code)} — {_value(project.get('nombre'))}**",
+        "",
+        f"- Cliente: {_value(project.get('cliente'))}",
+        f"- Estado: {_value(project.get('estado'))}",
+        f"- Fecha PPAP: {_value(project.get('fecha_ppap'))}",
+        f"- Partes: {', '.join(parts) if parts else '—'}",
+        f"- Actividades totales: {_value(summary.get('total_items'), '0')}",
+        f"- Pendientes: {_value(summary.get('pending_items'), '0')}",
+        f"- Bloqueadas: {_value(summary.get('blocked_items'), '0')}",
+        f"- Completadas: {_value(summary.get('completed_items'), '0')}",
+    ]
+
+    pending = [
+        item for item in items
+        if str(item.get("resultado") or "").upper() == "NO"
+    ]
+
+    if pending:
+        lines.extend([
+            "",
+            "**Actividades pendientes**",
+        ])
+
+        for item in pending[:15]:
+            detail = [
+                f"Responsable: {_value(item.get('responsable'))}",
+                f"Área: {_value(item.get('departamento'))}",
+            ]
+
+            if item.get("fecha_compromiso_actual"):
+                detail.append(
+                    "Compromiso: "
+                    + str(item["fecha_compromiso_actual"])
+                )
+
+            if str(item.get("bloqueada") or "0") == "1":
+                detail.append("Bloqueada")
+
+            lines.append(
+                "- **"
+                + _value(item.get("numero"))
+                + ". "
+                + _value(item.get("actividad"))
+                + "** · "
+                + " · ".join(detail)
+            )
+
+        if len(pending) > 15:
+            lines.append(
+                f"Mostrando 15 de {len(pending)} pendientes."
+            )
+
+    return "\n".join(lines)
+
+
+def _npi_projects_answer(
+    projects: list[dict],
+    *,
+    overdue_only: bool = False,
+    pending_only: bool = False,
+) -> str:
+    filtered = projects
+
+    if overdue_only:
+        filtered = [
+            project for project in filtered
+            if _to_int(project.get("overdue_items")) > 0
+        ]
+
+    if pending_only:
+        filtered = [
+            project for project in filtered
+            if _to_int(project.get("pending_items")) > 0
+        ]
+
+    if not filtered:
+        if overdue_only:
+            return "No encontré proyectos NPI con actividades atrasadas."
+        if pending_only:
+            return "No encontré proyectos NPI con actividades pendientes."
+        return "No encontré proyectos NPI."
+
+    title = "Proyectos NPI"
+    if overdue_only:
+        title += " con atraso"
+    elif pending_only:
+        title += " con pendientes"
+
+    lines = [
+        f"**{title}: {len(filtered)}**",
+        "",
+    ]
+
+    for project in filtered[:15]:
+        lines.append(
+            "- **"
+            + _value(project.get("codigo"))
+            + " — "
+            + _value(project.get("nombre"))
+            + "** · Cliente: "
+            + _value(project.get("cliente"))
+            + " · Estado: "
+            + _value(project.get("estado"))
+            + " · Pendientes: "
+            + str(_to_int(project.get("pending_items")))
+            + " · Atrasadas: "
+            + str(_to_int(project.get("overdue_items")))
+            + " · Bloqueadas: "
+            + str(_to_int(project.get("blocked_items")))
+            + " · PPAP: "
+            + _value(project.get("fecha_ppap"))
+        )
+
+    if len(filtered) > 15:
+        lines.extend([
+            "",
+            f"Mostrando 15 de {len(filtered)} proyectos.",
+        ])
+
+    return "\n".join(lines)
+
+
+
 def _approval_answer(
     approvals: list[dict],
 ) -> str:
@@ -371,11 +512,45 @@ async def build_action_tracker_result(
     try:
         if code_match:
             code = code_match.group(0).upper()
+
+            if code.startswith("NPI-"):
+                detail = await action_tracker.get_npi(code)
+                return ActionTrackerChatResult(
+                    direct_answer=_npi_detail_answer(
+                        detail,
+                        code,
+                    ),
+                    mode="npi_detail",
+                )
+
             detail = await action_tracker.get_action(code)
 
             return ActionTrackerChatResult(
                 direct_answer=_detail_answer(detail, code),
                 mode="action_detail",
+            )
+
+        if "npi" in folded and (
+            "proyecto" in folded
+            or "proyectos" in folded
+            or "atras" in folded
+            or "pendiente" in folded
+        ):
+            projects = await action_tracker.list_npi_projects()
+            return ActionTrackerChatResult(
+                direct_answer=_npi_projects_answer(
+                    projects,
+                    overdue_only=(
+                        "atras" in folded
+                        or "vencid" in folded
+                    ),
+                    pending_only=(
+                        "pendiente" in folded
+                        and "atras" not in folded
+                        and "vencid" not in folded
+                    ),
+                ),
+                mode="npi_projects",
             )
 
         raw = await action_tracker.list_actions(
