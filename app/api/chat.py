@@ -8,6 +8,10 @@ from app.core.action_tracker_context import build_action_tracker_result
 from app.core.config import settings
 from app.core.conversations import conversation_store
 from app.core.knowledge import knowledge_store
+from app.core.knowledge_answer import (
+    build_knowledge_answer,
+    is_knowledge_lookup,
+)
 from app.core.projects import project_store
 from app.providers.ollama import OllamaProvider
 from app.schemas.chat import (
@@ -217,6 +221,31 @@ async def chat(
                 "No se pudo preparar el contexto del chat."
             ),
         ) from exc
+
+    if (
+        not action_result.context
+        and is_knowledge_lookup(request.message)
+    ):
+        response = build_knowledge_answer(
+            request.message,
+            knowledge_chunks,
+        )
+
+        await _save_exchange(
+            conversation_id=conversation_id,
+            project_id=project_id,
+            user_message=request.message,
+            assistant_message=response,
+        )
+
+        return ChatResponse(
+            response=response,
+            model="RAG local",
+            conversation_id=conversation_id,
+            project_id=project_id,
+            knowledge_chunks_used=len(knowledge_chunks),
+            action_tracker_used=False,
+        )
 
     messages = [
         {
