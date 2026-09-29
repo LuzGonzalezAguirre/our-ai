@@ -211,9 +211,14 @@ def _recent_project_code(
         return current.group(0).upper()
 
     for message in reversed(_history_messages(history)):
-        match = NPI_PROJECT_RE.search(
-            str(message.get("content") or "")
-        )
+        content = str(message.get("content") or "")
+
+        if message.get("role") == "user":
+            domain = _detect_domain(content)
+            if domain in {"scrap", "maintenance"}:
+                return None
+
+        match = NPI_PROJECT_RE.search(content)
         if match:
             return match.group(0).upper()
 
@@ -1512,6 +1517,547 @@ async def build_action_tracker_result(
             history,
         ):
             return ActionTrackerChatResult()
+
+        raw = await action_tracker.list_actions(
+            open_only=False,
+        )
+        enriched = [
+            enrich_action(action)
+            for action in raw
+        ]
+
+        filters, domain = _combined_filters(
+            question,
+            history,
+            enriched,
+        )
+
+        scoped = _domain_filter(
+            enriched,
+            domain,
+        )
+
+        if filters:
+            scoped = apply_filters(
+                scoped,
+                filters,
+            )
+
+        if (
+            settings.action_tracker_default_user
+            and any(
+                phrase in folded
+                for phrase in (
+                    "mis acciones",
+                    "que tengo",
+                    "qué tengo",
+                    "tengo pendiente",
+                )
+            )
+        ):
+            scoped = apply_filters(
+                scoped,
+                {
+                    "asignado":
+                        settings.action_tracker_default_user
+                },
+            )
+
+        open_scoped = [
+            action
+            for action in scoped
+            if action.get("is_open")
+        ]
+
+        inherited_overdue = (
+            _history_mentions_overdue(history)
+            and _is_followup(question)
+        )
+
+        if (
+            ("vence" in folded or "vencen" in folded)
+            and "semana" in folded
+            and "vencid" not in folded
+        ):
+            actions = select_enriched_actions(
+                scoped,
+                due_this_week=True,
+            )
+            return ActionTrackerChatResult(
+                direct_answer=_list_answer(
+                    "Acciones que vencen esta semana",
+                    actions,
+                    (
+                        "No encontré acciones abiertas que "
+                        "venzan esta semana."
+                    ),
+                ),
+                mode="due_this_week",
+            )
+
+        if (
+            "automatic" in folded
+            or "automátic" in folded
+            or "generadas por" in folded
+            or "generados por" in folded
+        ):
+            actions = select_enriched_actions(
+                scoped,
+                auto_only=True,
+                created_this_week=("semana" in folded),
+                open_only=False,
+            )
+            return ActionTrackerChatResult(
+                direct_answer=_list_answer(
+                    "Acciones generadas automáticamente",
+                    actions,
+                    (
+                        "No encontré acciones automáticas "
+                        "para ese filtro."
+                    ),
+                ),
+                mode="automatic_actions",
+            )
+
+        if (
+            domain == "scrap"
+            and (
+                "repetid" in folded
+                or "recurrencia" in folded
+            )
+        ):
+            return ActionTrackerChatResult(
+                direct_answer=_scrap_recurrence_answer(
+                    scoped
+                ),
+                mode="scrap_recurrence",
+            )
+
+        if (
+            "más tiempo sin update" in folded
+            or "mas tiempo sin update" in folded
+            or "más tiempo sin actualización" in folded
+            or "mas tiempo sin actualizacion" in folded
+        ):
+            actions = open_scoped
+
+            if inherited_overdue:
+                actions = [
+                    action
+                    for action in actions
+                    if action.get("is_overdue")
+                ]
+
+            return ActionTrackerChatResult(
+                direct_answer=_longest_without_update_answer(
+                    actions
+                ),
+                mode="longest_without_update",
+            )
+
+        if (
+            "sin actualiz" in folded
+            or "sin update" in folded
+            or "estanc" in folded
+        ) and "cuello" not in folded:
+            actions = [
+                action
+                for action in open_scoped
+                if action.get("is_stale")
+            ]
+            return ActionTrackerChatResult(
+                direct_answer=_list_answer(
+                    "Acciones sin actualización",
+                    actions,
+                    (
+                        "No encontré acciones abiertas sin "
+                        "actualización."
+                    ),
+                ),
+                mode="stale_actions",
+            )
+
+        if "peor" in folded:
+            requested_match = NUMBER_RE.search(question)
+            requested = (
+                int(requested_match.group(1))
+                if requested_match
+                else 5
+            )
+
+            actions = open_scoped
+            if (
+                inherited_overdue
+                or "vencid" in folded
+                or "atrasad" in folded
+            ):
+                actions = [
+                    action
+                    for action in actions
+                    if action.get("is_overdue")
+                ]
+
+            return ActionTrackerChatResult(
+                direct_answer=_top_n_answer(
+                    actions,
+                    requested,
+                    ask_owner=(
+                        "responsable" in folded
+                        or "quién" in folded
+                        or "quien" in folded
+                    ),
+                ),
+                mode="top_n",
+            )
+
+        if (
+            ("aprob" in folded and "subactiv" in folded)
+            or (
+                "alguna" in folded
+                and (
+                    "aprob" in folded
+                    or "subactiv" in folded
+                )
+            )
+        ):
+            actions = open_scoped
+            if inherited_overdue:
+                actions = [
+                    action
+                    for action in actions
+                    if action.get("is_overdue")
+                ]
+
+            return ActionTrackerChatResult(
+                direct_answer=_scoped_issue_answer(
+                    actions
+                ),
+                mode="scoped_dependencies",
+            )
+
+        if (
+            "vencid" in folded
+            or "atrasad" in folded
+        ) and not any(
+            term in folded
+            for term in ("deten", "cuello")
+        ):
+            actions = [
+                action
+                for action in open_scoped
+                if action.get("is_overdue")
+            ]
+
+            if "quien" in folded or "quién" in folded:
+                answer = _owners_answer(
+                    "Responsables con acciones vencidas",
+                    actions,
+                )
+            else:
+                answer = _list_answer(
+                    "Acciones vencidas",
+                    actions,
+                    (
+                        "No encontré acciones abiertas "
+                        "vencidas para ese alcance."
+                    ),
+                )
+
+            return ActionTrackerChatResult(
+                direct_answer=answer,
+                mode="overdue_actions",
+            )
+
+        if (
+            "aprob" in folded
+            and "subactiv" not in folded
+            and not any(
+                term in folded
+                for term in BOTTLENECK_TERMS
+            )
+        ):
+            approvals = await action_tracker.pending_approvals()
+
+            allowed_codes = {
+                action.get("codigo")
+                for action in open_scoped
+                if action.get("codigo")
+            }
+
+            if domain or filters:
+                approvals = [
+                    approval
+                    for approval in approvals
+                    if approval.get("codigo") in allowed_codes
+                ]
+
+            return ActionTrackerChatResult(
+                direct_answer=_approval_answer(
+                    approvals
+                ),
+                mode="pending_approvals",
+            )
+
+        if (
+            "concentra" in folded
+            and "pendiente" in folded
+        ):
+            return ActionTrackerChatResult(
+                direct_answer=_owners_answer(
+                    "Pendientes por responsable",
+                    open_scoped,
+                ),
+                mode="pending_concentration",
+            )
+
+        if (
+            "siguen abiertas" in folded
+            or "siguen abierto" in folded
+            or (
+                "abiertas" in folded
+                and _is_followup(question)
+            )
+        ):
+            return ActionTrackerChatResult(
+                direct_answer=_list_answer(
+                    "Acciones abiertas",
+                    open_scoped,
+                    (
+                        "No encontré acciones abiertas "
+                        "para ese alcance."
+                    ),
+                ),
+                mode="followup_open",
+            )
+
+        if any(
+            term in folded
+            for term in BOTTLENECK_TERMS
+        ):
+            data = await bottlenecks(
+                stale_days=7,
+                filters=filters,
+            )
+
+            if domain:
+                # El analytics base no conoce dominios por prefijo,
+                # por lo que se resume el mismo scope determinístico.
+                return ActionTrackerChatResult(
+                    direct_answer=_summary_answer(
+                        open_scoped,
+                        title=(
+                            "Señales del alcance "
+                            + domain.title()
+                        ),
+                    ),
+                    mode="bottlenecks_scoped",
+                )
+
+            return ActionTrackerChatResult(
+                direct_answer=_bottleneck_answer(
+                    data
+                ),
+                mode="bottlenecks",
+            )
+
+        if any(
+            term in folded
+            for term in TREND_TERMS
+        ):
+            data = await trends(
+                days=_days_from_question(question),
+                filters=filters,
+            )
+            return ActionTrackerChatResult(
+                direct_answer=_trends_answer(data),
+                mode="trends",
+            )
+
+        if (
+            "resúm" in folded
+            or "resum" in folded
+            or "status report" in folded
+        ):
+            actions = open_scoped
+
+            if inherited_overdue:
+                actions = [
+                    action
+                    for action in actions
+                    if action.get("is_overdue")
+                ]
+
+            return ActionTrackerChatResult(
+                direct_answer=_summary_answer(
+                    actions,
+                ),
+                mode="scope_summary",
+            )
+
+        if (
+            domain
+            or filters
+            or "acciones" in folded
+            or "accion" in folded
+            or "pendiente" in folded
+        ):
+            title = "Acciones abiertas"
+            labels = []
+
+            if domain:
+                labels.append(domain.title())
+
+            labels.extend(
+                str(value)
+                for value in filters.values()
+                if value
+            )
+
+            if labels:
+                title += " · " + " / ".join(
+                    dict.fromkeys(labels)
+                )
+
+            return ActionTrackerChatResult(
+                direct_answer=_list_answer(
+                    title,
+                    open_scoped,
+                    (
+                        "No encontré acciones abiertas "
+                        "para ese filtro."
+                    ),
+                ),
+                mode="filtered_actions",
+            )
+
+        payload = {
+            "source": "Action Tracker live",
+            "mode": "overview",
+            "filters": filters,
+            "domain": domain,
+            "actions": [
+                _compact_action(item)
+                for item in open_scoped[:12]
+            ],
+        }
+
+        return ActionTrackerChatResult(
+            context=json.dumps(
+                payload,
+                ensure_ascii=False,
+                default=str,
+            ),
+            mode="overview",
+        )
+
+    except ActionTrackerError:
+        raise    try:
+        explicit_code_match = ACTION_CODE_RE.search(question)
+
+        if explicit_code_match:
+            explicit_code = explicit_code_match.group(0).upper()
+
+            if NPI_PROJECT_RE.fullmatch(explicit_code):
+                return await _answer_npi_project(
+                    question,
+                    explicit_code,
+                )
+
+            detail = await action_tracker.get_action(
+                explicit_code
+            )
+            return ActionTrackerChatResult(
+                direct_answer=_detail_answer(
+                    detail,
+                    explicit_code,
+                ),
+                mode="action_detail",
+            )
+
+        if (
+            "proyecto" in folded
+            and "actividades atrasadas" in folded
+            and (
+                "más" in folded
+                or "mas" in folded
+            )
+        ):
+            projects = await action_tracker.list_npi_projects()
+            candidates = [
+                project
+                for project in projects
+                if _to_int(project.get("overdue_items")) > 0
+            ]
+
+            if not candidates:
+                return ActionTrackerChatResult(
+                    direct_answer=(
+                        "No encontré proyectos NPI con "
+                        "actividades atrasadas."
+                    ),
+                    mode="npi_most_overdue_project",
+                )
+
+            project = max(
+                candidates,
+                key=lambda item: _to_int(
+                    item.get("overdue_items")
+                ),
+            )
+            code = str(project.get("codigo") or "")
+            data = await action_tracker.get_npi(code)
+
+            return ActionTrackerChatResult(
+                direct_answer=_npi_items_answer(
+                    data,
+                    code,
+                    mode="overdue",
+                ),
+                mode="npi_most_overdue_project",
+            )
+
+        if (
+            "npi" in folded
+            and (
+                "proyecto" in folded
+                or "proyectos" in folded
+            )
+            and not _is_followup(question)
+        ):
+            projects = await action_tracker.list_npi_projects()
+
+            return ActionTrackerChatResult(
+                direct_answer=_npi_projects_answer(
+                    projects,
+                    overdue_only=(
+                        "atras" in folded
+                        or "vencid" in folded
+                    ),
+                    pending_only=(
+                        "pendiente" in folded
+                        and "atras" not in folded
+                        and "vencid" not in folded
+                    ),
+                ),
+                mode="npi_projects",
+            )
+
+        if (
+            project_code
+            and (
+                _is_followup(question)
+                or "npi" in folded
+                or "actividad" in folded
+                or "pendiente" in folded
+                or "bloquead" in folded
+                or "vencid" in folded
+                or "atrasad" in folded
+            )
+        ):
+            return await _answer_npi_project(
+                question,
+                project_code,
+            )
 
         raw = await action_tracker.list_actions(
             open_only=False,
