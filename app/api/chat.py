@@ -1,3 +1,4 @@
+import logging
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -29,6 +30,7 @@ router = APIRouter(
 
 
 provider = OllamaProvider()
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = (
@@ -86,7 +88,7 @@ async def _save_exchange(
     project_id: str,
     user_message: str,
     assistant_message: str,
-) -> None:
+) -> bool:
     try:
         await conversation_store.append_exchange(
             conversation_id=conversation_id,
@@ -94,19 +96,18 @@ async def _save_exchange(
             assistant_message=assistant_message,
             project_id=project_id,
         )
+        return True
     except ValueError as exc:
         raise HTTPException(
             status_code=409,
             detail=str(exc),
         ) from exc
-    except SQLAlchemyError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "La IA respondió, pero no se pudo guardar "
-                "la conversación en PostgreSQL."
-            ),
-        ) from exc
+    except SQLAlchemyError:
+        logger.exception(
+            "No se pudo guardar la conversación %s en PostgreSQL.",
+            conversation_id,
+        )
+        return False
 
 
 @router.post(
