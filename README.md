@@ -135,3 +135,37 @@ Tables are created automatically when FastAPI starts:
 
 Existing conversations are automatically associated with the default
 `General` project.
+
+
+## Action Tracker integration (read-only)
+
+OUR-AI can consume the internal Action Tracker JSON bridge and use deterministic analytics
+before asking Qwen to explain the result.
+
+Configure the OUR-AI `.env`:
+
+```text
+ACTION_TRACKER_ENABLED=true
+ACTION_TRACKER_BASE_URL=http://ACTION-TRACKER-SERVER:8000
+ACTION_TRACKER_TOKEN=the-same-private-token-configured-in-action-tracker
+ACTION_TRACKER_DEFAULT_USER=
+ACTION_TRACKER_TIMEOUT_SECONDS=20
+```
+
+`ACTION_TRACKER_DEFAULT_USER` is optional. It is useful in a single-user development
+environment so phrases such as "mis acciones" can map to one Action Tracker assignee.
+A shared deployment should use authenticated user identity instead.
+
+Action Tracker must have `AT_TOKEN` configured with the same secret. Keep both tokens in
+environment variables or local `.env` files and never commit them.
+
+Diagnostic endpoints:
+
+- `GET /v1/integrations/action-tracker/health`
+- `GET /v1/integrations/action-tracker/overview`
+- `GET /v1/integrations/action-tracker/bottlenecks`
+- `GET /v1/integrations/action-tracker/trends?days=90`
+- `GET /v1/integrations/action-tracker/actions/CAL-125`
+
+The chat automatically adds live Action Tracker context for recognized action queries.
+This first integration is strictly read-only.
