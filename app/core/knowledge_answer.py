@@ -152,15 +152,68 @@ def _split_sections(content: str) -> list[tuple[str, str]]:
     return sections
 
 
+def _intent_heading_hints(
+    question: str,
+) -> tuple[str, ...]:
+    folded = _normalize(question)
+
+    if (
+        "scrap" in folded
+        and any(
+            token in folded
+            for token in (
+                "roja",
+                "rojo",
+                "rojas",
+                "rojos",
+                "red",
+            )
+        )
+    ):
+        return ("seleccion de offenders",)
+
+    if (
+        "offender" in folded
+        and any(
+            token in folded
+            for token in (
+                "genera",
+                "generar",
+                "decide",
+            )
+        )
+    ):
+        return ("seleccion de offenders",)
+
+    if (
+        "target" in folded
+        or "meta" in folded
+    ):
+        return ("targets",)
+
+    if (
+        "accion" in folded
+        and "vencid" in folded
+    ):
+        return ("accion vencida",)
+
+    return ()
+
+
 def _section_score(
     heading: str,
     body: str,
     terms: set[str],
+    heading_hints: tuple[str, ...] = (),
 ) -> int:
     heading_text = _normalize(heading)
     body_text = _normalize(body)
 
     score = 0
+
+    for hint in heading_hints:
+        if hint in heading_text:
+            score += 50
 
     for term in terms:
         if term in heading_text:
@@ -202,6 +255,9 @@ def build_knowledge_answer(
         )
 
     terms = _terms(question)
+    heading_hints = _intent_heading_hints(
+        question
+    )
     candidates: list[tuple[int, int, str]] = []
     order = 0
 
@@ -216,6 +272,7 @@ def build_knowledge_answer(
                 heading,
                 body,
                 terms,
+                heading_hints,
             )
 
             if score <= 0:
