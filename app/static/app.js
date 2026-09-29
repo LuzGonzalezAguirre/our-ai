@@ -435,9 +435,13 @@ async function sendMessage(message) {
         state.conversationId = result.conversation_id;
         elements.modelBadge.textContent = result.model;
         elements.ragBadge.textContent =
-            result.knowledge_chunks_used > 0
-                ? result.knowledge_chunks_used + " chunks"
-                : "RAG local";
+            result.action_tracker_used
+                ? "Action Tracker live"
+                : (
+                    result.knowledge_chunks_used > 0
+                        ? result.knowledge_chunks_used + " chunks"
+                        : "RAG local"
+                );
         elements.deleteChatButton.disabled = false;
 
         await loadConversations();
