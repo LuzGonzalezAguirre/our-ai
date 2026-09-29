@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     action_tracker_token: str = ""
     action_tracker_default_user: str = ""
     action_tracker_timeout_seconds: float = 20.0
+    action_tracker_cache_seconds: float = 60.0
 
     model_config = SettingsConfigDict(
         env_file=".env",
