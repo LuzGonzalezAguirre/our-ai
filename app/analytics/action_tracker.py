@@ -168,8 +168,10 @@ async def select_actions(
     overdue_only: bool = False,
     stale_only: bool = False,
     due_within_days: int | None = None,
+    due_this_week: bool = False,
     auto_only: bool = False,
     created_within_days: int | None = None,
+    created_this_week: bool = False,
     open_only: bool = True,
     stale_days: int = 7,
 ) -> list[dict]:
@@ -202,11 +204,22 @@ async def select_actions(
         ):
             continue
 
-        if due_within_days is not None:
-            due = _date(
-                action.get("fecha_fin")
-                or action.get("fecha_fin_base")
+        due = _date(
+            action.get("fecha_fin")
+            or action.get("fecha_fin_base")
+        )
+
+        if due_this_week:
+            week_end = today + timedelta(
+                days=6 - today.weekday()
             )
+            if (
+                due is None
+                or due < today
+                or due > week_end
+            ):
+                continue
+        elif due_this_week or due_within_days is not None:
             if (
                 due is None
                 or due < today
@@ -214,7 +227,18 @@ async def select_actions(
             ):
                 continue
 
-        if created_within_days is not None:
+        if created_this_week:
+            created = _date(action.get("creado_en"))
+            week_start = today - timedelta(
+                days=today.weekday()
+            )
+            if (
+                created is None
+                or created < week_start
+                or created > today
+            ):
+                continue
+        elif created_within_days is not None:
             created = _date(action.get("creado_en"))
             if (
                 created is None
