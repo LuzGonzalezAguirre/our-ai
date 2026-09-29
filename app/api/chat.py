@@ -140,8 +140,14 @@ async def chat(
             or str(uuid4())
         )
 
+        history = await conversation_store.get_messages(
+            conversation_id,
+            limit=settings.chat_history_messages,
+        )
+
         action_result = await build_action_tracker_result(
-            request.message
+            request.message,
+            history=history,
         )
 
     except HTTPException:
@@ -180,11 +186,6 @@ async def chat(
         )
 
     try:
-        history = await conversation_store.get_messages(
-            conversation_id,
-            limit=settings.chat_history_messages,
-        )
-
         if action_result.context:
             knowledge_chunks = []
         else:
