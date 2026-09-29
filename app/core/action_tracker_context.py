@@ -1263,9 +1263,9 @@ def _scrap_reason(action: dict) -> str:
     return title or "Sin razón"
 
 
-def _scrap_recurrence_answer(
+def _scrap_recurrence_groups(
     actions: list[dict],
-) -> str:
+) -> list[list[dict]]:
     scrap_actions = [
         action
         for action in actions
@@ -1294,6 +1294,29 @@ def _scrap_recurrence_answer(
     repeated.sort(
         key=len,
         reverse=True,
+    )
+    return repeated
+
+
+def _scrap_recurrence_actions(
+    actions: list[dict],
+) -> list[dict]:
+    repeated = _scrap_recurrence_groups(
+        actions
+    )
+    flattened = []
+
+    for items in repeated:
+        flattened.extend(items)
+
+    return flattened
+
+
+def _scrap_recurrence_answer(
+    actions: list[dict],
+) -> str:
+    repeated = _scrap_recurrence_groups(
+        actions
     )
 
     if not repeated:
@@ -1787,6 +1810,30 @@ async def build_action_tracker_result(
                 or "recurrencia" in folded
             )
         ):
+            if (
+                "resúm" in folded
+                or "resum" in folded
+                or "status" in folded
+                or "estado" in folded
+            ):
+                repeated_actions = (
+                    _scrap_recurrence_actions(
+                        scoped
+                    )
+                )
+                return ActionTrackerChatResult(
+                    direct_answer=_list_answer(
+                        "Estado de acciones Scrap repetidas",
+                        repeated_actions,
+                        (
+                            "No encontré acciones Scrap repetidas "
+                            "en ese alcance."
+                        ),
+                        limit=50,
+                    ),
+                    mode="scrap_recurrence_status",
+                )
+
             return ActionTrackerChatResult(
                 direct_answer=_scrap_recurrence_answer(
                     scoped
@@ -2059,6 +2106,7 @@ async def build_action_tracker_result(
             or "acciones" in folded
             or "accion" in folded
             or "pendiente" in folded
+            or exclude_npi
         ):
             title = "Acciones abiertas"
             labels = []
@@ -2088,6 +2136,7 @@ async def build_action_tracker_result(
                         "No encontré acciones abiertas "
                         "para ese filtro."
                     ),
+                    limit=(50 if exclude_npi else 12),
                 ),
                 mode="filtered_actions",
             )
