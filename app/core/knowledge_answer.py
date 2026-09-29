@@ -30,12 +30,14 @@ LOOKUP_PREFIXES = (
 )
 
 STOPWORDS = {
-    "que", "qué", "como", "cómo", "cual", "cuál", "cuales",
-    "cuáles", "para", "por", "una", "uno", "unos", "unas",
-    "del", "las", "los", "con", "sin", "dentro", "debe", "ser",
-    "esta", "este", "estos", "estas", "esto", "se", "en", "de",
-    "la", "el", "y", "o", "es", "son", "un", "al", "lo", "su",
-    "sus", "me", "mi", "hay", "más", "mas",
+    "que", "qué", "como", "cómo", "cual", "cuál",
+    "cuales", "cuáles", "para", "por", "una", "uno",
+    "unos", "unas", "del", "las", "los", "con", "sin",
+    "dentro", "debe", "ser", "esta", "este", "estos",
+    "estas", "esto", "se", "en", "de", "la", "el", "y",
+    "o", "es", "son", "un", "al", "lo", "su", "sus",
+    "me", "mi", "hay", "más", "mas", "significa",
+    "funciona", "decide", "evita", "explicame", "explícame",
 }
 
 SYNONYMS = {
@@ -52,6 +54,10 @@ SYNONYMS = {
     "duplicadas": {"duplicado", "duplicados"},
     "actualización": {"actualizacion", "update"},
     "actualizacion": {"actualización", "update"},
+    "offender": {"offenders", "ofensor", "ofensores"},
+    "offenders": {"offender", "ofensor", "ofensores"},
+    "genera": {"generar", "generacion", "generación"},
+    "targets": {"target", "meta", "metas"},
 }
 
 
@@ -68,9 +74,19 @@ def _normalize(value: str) -> str:
     return text.casefold()
 
 
+def _clean_question(question: str) -> str:
+    return (
+        str(question or "")
+        .casefold()
+        .strip()
+        .lstrip("¿¡")
+        .strip()
+    )
+
+
 def _terms(question: str) -> set[str]:
     words = {
-        word
+        word.casefold()
         for word in re.findall(
             r"[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ0-9_-]+",
             question,
@@ -82,11 +98,9 @@ def _terms(question: str) -> set[str]:
     expanded = set(words)
 
     for word in list(words):
-        for synonym in SYNONYMS.get(
-            word.casefold(),
-            set(),
-        ):
-            expanded.add(synonym)
+        expanded.update(
+            SYNONYMS.get(word, set())
+        )
 
     return {
         _normalize(word)
@@ -95,40 +109,93 @@ def _terms(question: str) -> set[str]:
 
 
 def is_knowledge_lookup(question: str) -> bool:
-    folded = str(question or "").casefold().strip()
+    folded = _clean_question(question)
     return any(
         folded.startswith(prefix)
         for prefix in LOOKUP_PREFIXES
     )
 
 
-def _score_line(
-    line: str,
+def _split_sections(content: str) -> list[tuple[str, str]]:
+    sections: list[tuple[str, str]] = []
+    heading = ""
+    body: list[str] = []
+
+    def flush() -> None:
+        nonlocal body
+
+        text = "\n".join(body).strip()
+
+        if heading or text:
+            sections.append(
+                (
+                    heading.strip(),
+                    text,
+                )
+            )
+
+        body = []
+
+    for raw_line in str(content or "").splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+
+        if re.match(r"^#{1,6}\s+", stripped):
+            flush()
+            heading = stripped
+            continue
+
+        if stripped:
+            body.append(line)
+
+    flush()
+    return sections
+
+
+def _section_score(
+    heading: str,
+    body: str,
     terms: set[str],
 ) -> int:
-    normalized = _normalize(line)
+    heading_text = _normalize(heading)
+    body_text = _normalize(body)
 
     score = 0
+
     for term in terms:
-        if term in normalized:
-            score += 2
+        if term in heading_text:
+            score += 8
+
+        if term in body_text:
+            score += 3
 
         if len(term) >= 5:
             root = term[:5]
-            if root in normalized:
-                score += 1
 
-    if line.lstrip().startswith(("-", "*")):
-        score += 1
+            if root in heading_text:
+                score += 3
+
+            if root in body_text:
+                score += 1
 
     return score
 
 
+def _section_text(
+    heading: str,
+    body: str,
+) -> str:
+    if heading and body:
+        return heading + "\n\n" + body
+
+    return heading or body
+
+
 def build_knowledge_answer(
     question: str,
-    chunks: list[tuple[object, float]],
+    sources: list[object],
 ) -> str:
-    if not chunks:
+    if not sources:
         return (
             "No encontré conocimiento guardado en este proyecto "
             "que pueda responder esa pregunta."
@@ -136,47 +203,40 @@ def build_knowledge_answer(
 
     terms = _terms(question)
     candidates: list[tuple[int, int, str]] = []
-    fallback_lines: list[str] = []
+    order = 0
 
-    for chunk_index, (chunk, _score) in enumerate(chunks):
-        content = str(getattr(chunk, "content", "") or "")
-        lines = [
-            line.rstrip()
-            for line in content.splitlines()
-            if line.strip()
-        ]
+    for source in sources:
+        content = str(
+            getattr(source, "content", "")
+            or ""
+        )
 
-        fallback_lines.extend(lines)
-
-        current_heading = ""
-
-        for line_index, line in enumerate(lines):
-            stripped = line.strip()
-
-            if stripped.startswith("#"):
-                current_heading = stripped
-                continue
-
-            score = _score_line(
-                stripped,
+        for heading, body in _split_sections(content):
+            score = _section_score(
+                heading,
+                body,
                 terms,
             )
 
             if score <= 0:
+                order += 1
                 continue
 
-            text = stripped
+            text = _section_text(
+                heading,
+                body,
+            ).strip()
 
-            if current_heading:
-                text = current_heading + "\n" + text
-
-            candidates.append(
-                (
-                    score,
-                    -(chunk_index * 1000 + line_index),
-                    text,
+            if text:
+                candidates.append(
+                    (
+                        score,
+                        -order,
+                        text,
+                    )
                 )
-            )
+
+            order += 1
 
     candidates.sort(
         key=lambda item: (
@@ -190,39 +250,32 @@ def build_knowledge_answer(
     seen = set()
     total_chars = 0
 
-    for _score, _order, text in candidates:
+    for score, _order, text in candidates:
+        if score < 3:
+            continue
+
         key = _normalize(text)
 
         if key in seen:
             continue
 
-        if total_chars + len(text) > 1400:
+        if total_chars + len(text) > 1800:
             continue
 
         seen.add(key)
         selected.append(text)
         total_chars += len(text)
 
-        if len(selected) >= 8:
+        if len(selected) >= 3:
             break
 
     if not selected:
-        selected = []
-        total_chars = 0
-
-        for line in fallback_lines:
-            if total_chars + len(line) > 1200:
-                break
-            selected.append(line)
-            total_chars += len(line)
-
-    if not selected:
         return (
-            "Encontré una fuente relacionada, pero no pude extraer "
-            "contenido textual suficiente para responder."
+            "No encontré una sección suficientemente relacionada "
+            "en el conocimiento guardado del proyecto."
         )
 
     return (
         "**Según el conocimiento guardado del proyecto:**\n\n"
-        + "\n".join(selected)
+        + "\n\n".join(selected)
     )
