@@ -152,7 +152,7 @@ def _fold(value: str | None) -> str:
         str(value or "")
         .casefold()
         .strip()
-        .lstrip("¿¡")
+        .lstrip("¿¡-*• ")
         .strip()
     )
 
@@ -272,8 +272,6 @@ def _history_scope_text(
                     "quality",
                 )
             )
-            or "vencid" in _fold(text)
-            or "atras" in _fold(text)
         ):
             return text
 
