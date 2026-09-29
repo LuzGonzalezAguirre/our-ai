@@ -6,6 +6,7 @@ from app.analytics.action_tracker import (
     enrich_action,
     infer_filters,
     overview,
+    select_actions,
     trends,
 )
 from app.connectors.action_tracker import (
@@ -86,7 +87,10 @@ def _compact_action(action: dict) -> dict:
         "avance",
         "fecha_fin",
         "fecha_fin_base",
+        "creado_en",
         "ultimo_update",
+        "external_source_key",
+        "generado_automaticamente",
         "reprogramaciones",
         "hijos_abiertos",
         "days_open",
@@ -191,7 +195,95 @@ async def build_action_tracker_context(
                 settings.action_tracker_default_user
             )
 
-        if any(term in folded for term in TREND_TERMS):
+        if (
+            ("vence" in folded or "vencen" in folded)
+            and "semana" in folded
+            and "vencid" not in folded
+        ):
+            actions = await select_actions(
+                filters=filters,
+                due_within_days=7,
+            )
+            payload = {
+                "source": "Action Tracker live",
+                "mode": "due_this_week",
+                "filters": filters,
+                "count": len(actions),
+                "actions": [
+                    _compact_action(item)
+                    for item in actions[:40]
+                ],
+            }
+
+        elif (
+            "automatic" in folded
+            or "automátic" in folded
+            or "generadas por" in folded
+            or "generados por" in folded
+        ):
+            actions = await select_actions(
+                filters=filters,
+                auto_only=True,
+                created_within_days=(
+                    7 if "semana" in folded else None
+                ),
+                open_only=False,
+            )
+            payload = {
+                "source": "Action Tracker live",
+                "mode": "automatic_actions",
+                "filters": filters,
+                "count": len(actions),
+                "actions": [
+                    _compact_action(item)
+                    for item in actions[:40]
+                ],
+            }
+
+        elif (
+            "sin actualiz" in folded
+            or "sin update" in folded
+            or "estanc" in folded
+        ):
+            actions = await select_actions(
+                filters=filters,
+                stale_only=True,
+            )
+            payload = {
+                "source": "Action Tracker live",
+                "mode": "stale_actions",
+                "filters": filters,
+                "count": len(actions),
+                "actions": [
+                    _compact_action(item)
+                    for item in actions[:40]
+                ],
+            }
+
+        elif (
+            "vencid" in folded
+            or "atrasad" in folded
+        ) and not any(
+            term in folded
+            for term in BOTTLENECK_TERMS
+            if term in ("deten", "cuello")
+        ):
+            actions = await select_actions(
+                filters=filters,
+                overdue_only=True,
+            )
+            payload = {
+                "source": "Action Tracker live",
+                "mode": "overdue_actions",
+                "filters": filters,
+                "count": len(actions),
+                "actions": [
+                    _compact_action(item)
+                    for item in actions[:40]
+                ],
+            }
+
+        elif any(term in folded for term in TREND_TERMS):
             data = await trends(
                 days=_days_from_question(question),
                 filters=filters,
