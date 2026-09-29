@@ -1,5 +1,5 @@
 from collections import Counter, defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Iterable
 
 from app.connectors.action_tracker import action_tracker
@@ -91,12 +91,6 @@ def enrich_action(
     return result
 
 
-def _contains(value, query: str) -> bool:
-    if not value:
-        return False
-    return str(value).casefold() in query.casefold()
-
-
 def infer_filters(
     question: str,
     actions: Iterable[dict],
@@ -104,15 +98,15 @@ def infer_filters(
     question_folded = question.casefold()
     filters = {}
 
-    dimensions = {
-        "departamento": "departamento",
-        "area": "area",
-        "categoria": "categoria",
-        "asignado": "asignado",
-        "estado": "estado",
-    }
+    dimensions = (
+        "departamento",
+        "area",
+        "categoria",
+        "asignado",
+        "estado",
+    )
 
-    for output_key, field in dimensions.items():
+    for field in dimensions:
         values = sorted(
             {
                 str(action.get(field)).strip()
@@ -125,7 +119,7 @@ def infer_filters(
 
         for value in values:
             if value.casefold() in question_folded:
-                filters[output_key] = value
+                filters[field] = value
                 break
 
     return filters
@@ -135,17 +129,29 @@ def apply_filters(
     actions: Iterable[dict],
     filters: dict[str, str],
 ) -> list[dict]:
+    aliases = {
+        "asignado": ("asignado", "responsable"),
+        "departamento": ("departamento",),
+        "area": ("area",),
+        "categoria": ("categoria",),
+        "estado": ("estado",),
+    }
+
     result = []
 
     for action in actions:
         keep = True
+
         for field, expected in filters.items():
-            if not _contains(
-                expected,
-                str(action.get(field) or "")
-            ) and not _contains(
-                action.get(field),
-                expected,
+            candidates = aliases.get(field, (field,))
+            values = [
+                str(action.get(candidate) or "").casefold()
+                for candidate in candidates
+            ]
+
+            if not any(
+                expected.casefold() in value
+                for value in values
             ):
                 keep = False
                 break
@@ -202,6 +208,22 @@ async def overview(
         for action in overdue
     )
 
+    signals = {
+        "overdue_stale": sum(
+            1 for action in overdue
+            if action["is_stale"]
+        ),
+        "open_children": sum(
+            1 for action in open_actions
+            if _int(action.get("hijos_abiertos")) > 0
+        ),
+        "reprogrammed_multiple": sum(
+            1 for action in open_actions
+            if _int(action.get("reprogramaciones")) >= 2
+        ),
+        "pending_approval": len(pending),
+    }
+
     return {
         "filters": filters or {},
         "total": len(actions),
@@ -209,6 +231,7 @@ async def overview(
         "overdue": len(overdue),
         "stale": len(stale),
         "pending_approval": len(pending),
+        "signals": signals,
         "by_department": by_department.most_common(10),
         "by_category": by_category.most_common(10),
         "overdue_by_assignee": by_assignee.most_common(10),
@@ -225,7 +248,7 @@ async def overview(
             key=lambda item: item.get("days_since_update") or 0,
             reverse=True,
         )[:15],
-        "actions": open_actions[:100],
+        "actions": open_actions,
     }
 
 
@@ -243,29 +266,25 @@ async def bottlenecks(
     if filters:
         approvals = apply_filters(
             approvals,
-            {
-                key: value
-                for key, value in filters.items()
-                if key in {
-                    "departamento",
-                    "area",
-                    "asignado",
-                }
-            },
+            filters,
         )
 
-    reasons = Counter()
-    for action in data["top_overdue"]:
-        reasons["vencida"] += 1
-        if action["is_stale"]:
-            reasons["vencida_sin_update"] += 1
-        if _int(action.get("hijos_abiertos")):
-            reasons["subactividades_abiertas"] += 1
-        if _int(action.get("reprogramaciones")) >= 2:
-            reasons["reprogramaciones_repetidas"] += 1
+        allowed_codes = {
+            action.get("codigo")
+            for action in data["actions"]
+        }
+        approvals = [
+            approval for approval in approvals
+            if approval.get("codigo") in allowed_codes
+        ]
 
-    if approvals:
-        reasons["esperando_aprobacion"] += len(approvals)
+    reasons = Counter({
+        "vencida": data["overdue"],
+        "vencida_sin_update": data["signals"]["overdue_stale"],
+        "subactividades_abiertas": data["signals"]["open_children"],
+        "reprogramaciones_repetidas": data["signals"]["reprogrammed_multiple"],
+        "esperando_aprobacion": len(approvals),
+    })
 
     return {
         "summary": {
@@ -274,7 +293,11 @@ async def bottlenecks(
             "stale": data["stale"],
             "pending_approvals": len(approvals),
         },
-        "signals": reasons.most_common(),
+        "signals": [
+            (name, count)
+            for name, count in reasons.most_common()
+            if count > 0
+        ],
         "overdue_by_assignee": data["overdue_by_assignee"],
         "top_overdue": data["top_overdue"][:10],
         "top_stale": data["top_stale"][:10],
@@ -310,7 +333,7 @@ async def trends(
         ]
 
     today = date.today()
-    start = today.fromordinal(today.toordinal() - days)
+    start = today - timedelta(days=days)
 
     created = [
         action for action in actions
