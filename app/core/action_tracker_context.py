@@ -104,6 +104,9 @@ def _compact_action(action: dict) -> dict:
         "days_overdue",
         "days_since_update",
         "pending_approvals",
+        "is_open",
+        "is_overdue",
+        "is_stale",
     )
     return {
         field: action.get(field)
