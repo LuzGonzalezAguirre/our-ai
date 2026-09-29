@@ -172,7 +172,7 @@ async def chat(
 
         return ChatResponse(
             response=action_result.direct_answer,
-            model="Action Tracker",
+            model=settings.ollama_model,
             conversation_id=conversation_id,
             project_id=project_id,
             knowledge_chunks_used=0,
