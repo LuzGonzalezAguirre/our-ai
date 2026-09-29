@@ -5,13 +5,16 @@ const state = {
     projectId: null,
     knowledge: [],
     sending: false,
+    confirmResolver: null,
 };
 
 const elements = {
     conversationList: document.getElementById("conversationList"),
+    conversationCount: document.getElementById("conversationCount"),
     newChatButton: document.getElementById("newChatButton"),
     deleteChatButton: document.getElementById("deleteChatButton"),
     conversationTitle: document.getElementById("conversationTitle"),
+    conversationMeta: document.getElementById("conversationMeta"),
     messages: document.getElementById("messages"),
     emptyState: document.getElementById("emptyState"),
     chatForm: document.getElementById("chatForm"),
@@ -19,13 +22,19 @@ const elements = {
     sendButton: document.getElementById("sendButton"),
     modelBadge: document.getElementById("modelBadge"),
     ragBadge: document.getElementById("ragBadge"),
+    integrationBadge: document.getElementById("integrationBadge"),
+    composerSource: document.getElementById("composerSource"),
     statusDot: document.getElementById("statusDot"),
+    statusDotSide: document.getElementById("statusDotSide"),
     statusText: document.getElementById("statusText"),
+    statusTextSide: document.getElementById("statusTextSide"),
     statusDetail: document.getElementById("statusDetail"),
     projectSelect: document.getElementById("projectSelect"),
     projectEyebrow: document.getElementById("projectEyebrow"),
     newProjectButton: document.getElementById("newProjectButton"),
+    projectNavButton: document.getElementById("projectNavButton"),
     knowledgeButton: document.getElementById("knowledgeButton"),
+    knowledgeNavButton: document.getElementById("knowledgeNavButton"),
     projectModal: document.getElementById("projectModal"),
     projectForm: document.getElementById("projectForm"),
     projectName: document.getElementById("projectName"),
@@ -36,11 +45,22 @@ const elements = {
     knowledgeContent: document.getElementById("knowledgeContent"),
     knowledgeSubmitButton: document.getElementById("knowledgeSubmitButton"),
     knowledgeList: document.getElementById("knowledgeList"),
+    knowledgeCount: document.getElementById("knowledgeCount"),
     knowledgeProjectTitle: document.getElementById("knowledgeProjectTitle"),
+    sidebar: document.getElementById("sidebar"),
+    sidebarToggle: document.getElementById("sidebarToggle"),
+    sidebarClose: document.getElementById("sidebarClose"),
+    sidebarBackdrop: document.getElementById("sidebarBackdrop"),
+    confirmModal: document.getElementById("confirmModal"),
+    confirmTitle: document.getElementById("confirmTitle"),
+    confirmMessage: document.getElementById("confirmMessage"),
+    confirmCancel: document.getElementById("confirmCancel"),
+    confirmAccept: document.getElementById("confirmAccept"),
+    toastRegion: document.getElementById("toastRegion"),
 };
 
 function setEmptyState(visible) {
-    elements.emptyState.style.display = visible ? "" : "none";
+    elements.emptyState.hidden = !visible;
 }
 
 function scrollToBottom() {
@@ -55,8 +75,199 @@ function currentProject() {
 
 function updateProjectHeader() {
     const project = currentProject();
-    elements.projectEyebrow.textContent =
-        (project?.name || "PROJECT").toUpperCase();
+    const projectName = project?.name || "General";
+
+    elements.projectEyebrow.textContent = projectName.toUpperCase();
+    elements.composerSource.textContent =
+        "Qwen local · " + projectName;
+}
+
+function setStatus(mode, title, detail) {
+    const className =
+        mode === "online"
+            ? "status-dot online"
+            : mode === "degraded"
+                ? "status-dot degraded"
+                : "status-dot";
+
+    elements.statusDot.className = className;
+    elements.statusDotSide.className = className;
+    elements.statusText.textContent = title;
+    elements.statusTextSide.textContent = title;
+    elements.statusDetail.textContent = detail;
+}
+
+function notify(message, type = "info") {
+    const toast = document.createElement("div");
+    toast.className = "toast " + type;
+    toast.textContent = message;
+    elements.toastRegion.appendChild(toast);
+
+    window.setTimeout(() => {
+        toast.remove();
+    }, 4200);
+}
+
+function openSidebar() {
+    elements.sidebar.classList.add("open");
+    elements.sidebarBackdrop.hidden = false;
+    elements.sidebarToggle.setAttribute("aria-expanded", "true");
+}
+
+function closeSidebar() {
+    elements.sidebar.classList.remove("open");
+    elements.sidebarBackdrop.hidden = true;
+    elements.sidebarToggle.setAttribute("aria-expanded", "false");
+}
+
+function openModal(modal) {
+    modal.hidden = false;
+    document.body.classList.add("modal-open");
+}
+
+function closeModal(modal) {
+    modal.hidden = true;
+
+    if (
+        elements.projectModal.hidden &&
+        elements.knowledgeModal.hidden &&
+        elements.confirmModal.hidden
+    ) {
+        document.body.classList.remove("modal-open");
+    }
+}
+
+function confirmAction({
+    title = "Confirmar",
+    message = "¿Deseas continuar?",
+    acceptText = "Eliminar",
+} = {}) {
+    elements.confirmTitle.textContent = title;
+    elements.confirmMessage.textContent = message;
+    elements.confirmAccept.textContent = acceptText;
+    openModal(elements.confirmModal);
+
+    return new Promise((resolve) => {
+        state.confirmResolver = resolve;
+        elements.confirmCancel.focus();
+    });
+}
+
+function resolveConfirmation(value) {
+    if (state.confirmResolver) {
+        state.confirmResolver(value);
+        state.confirmResolver = null;
+    }
+
+    closeModal(elements.confirmModal);
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+function renderInline(value) {
+    let html = escapeHtml(value);
+    const inlineCodePattern = new RegExp(
+        String.fromCharCode(96) +
+        "([^" + String.fromCharCode(96) + "]+)" +
+        String.fromCharCode(96),
+        "g"
+    );
+
+    html = html.replace(
+        /\*\*([^*]+)\*\*/g,
+        "<strong>$1</strong>"
+    );
+
+    html = html.replace(
+        inlineCodePattern,
+        "<code>$1</code>"
+    );
+
+    return html;
+}
+
+function appendTextBlock(container, block) {
+    const trimmed = block.trim();
+
+    if (!trimmed) {
+        return;
+    }
+
+    const lines = trimmed.split("\n");
+
+    if (lines.every((line) => /^[-*]\s+/.test(line.trim()))) {
+        const list = document.createElement("ul");
+
+        for (const line of lines) {
+            const item = document.createElement("li");
+            item.innerHTML = renderInline(
+                line.trim().replace(/^[-*]\s+/, "")
+            );
+            list.appendChild(item);
+        }
+
+        container.appendChild(list);
+        return;
+    }
+
+    if (lines.every((line) => /^\d+\.\s+/.test(line.trim()))) {
+        const list = document.createElement("ol");
+
+        for (const line of lines) {
+            const item = document.createElement("li");
+            item.innerHTML = renderInline(
+                line.trim().replace(/^\d+\.\s+/, "")
+            );
+            list.appendChild(item);
+        }
+
+        container.appendChild(list);
+        return;
+    }
+
+    const paragraph = document.createElement("p");
+    paragraph.innerHTML = lines
+        .map((line) => renderInline(line))
+        .join("<br>");
+    container.appendChild(paragraph);
+}
+
+function renderAssistantContent(container, content) {
+    const fence = String.fromCharCode(96).repeat(3);
+    const segments = String(content ?? "").split(fence);
+
+    segments.forEach((segment, index) => {
+        if (index % 2 === 1) {
+            const code = document.createElement("pre");
+            const codeInner = document.createElement("code");
+            const lines = segment.replace(/^\n/, "").split("\n");
+
+            if (
+                lines.length > 1 &&
+                /^[a-zA-Z0-9_+#.-]+$/.test(lines[0].trim())
+            ) {
+                lines.shift();
+            }
+
+            codeInner.textContent = lines.join("\n").trimEnd();
+            code.appendChild(codeInner);
+            container.appendChild(code);
+            return;
+        }
+
+        const blocks = segment.split(/\n\s*\n/);
+
+        for (const block of blocks) {
+            appendTextBlock(container, block);
+        }
+    });
 }
 
 function createMessageElement(role, content, pending = false) {
@@ -86,8 +297,11 @@ function createMessageElement(role, content, pending = false) {
         }
 
         messageContent.appendChild(typing);
+    } else if (role === "assistant") {
+        renderAssistantContent(messageContent, content);
     } else {
         messageContent.textContent = String(content ?? "");
+        messageContent.style.whiteSpace = "pre-wrap";
     }
 
     body.append(roleLabel, messageContent);
@@ -117,12 +331,14 @@ function renderMessages(messages) {
 
 function renderConversationList() {
     elements.conversationList.replaceChildren();
+    elements.conversationCount.textContent =
+        String(state.conversations.length);
 
     if (state.conversations.length === 0) {
         const empty = document.createElement("div");
-        empty.className = "conversation-item";
-        empty.textContent = "Todavía no hay chats";
-        empty.style.cursor = "default";
+        empty.className = "conversation-empty";
+        empty.textContent =
+            "Todavía no hay conversaciones en este proyecto.";
         elements.conversationList.appendChild(empty);
         return;
     }
@@ -139,8 +355,9 @@ function renderConversationList() {
         button.textContent = conversation.title;
         button.title = conversation.title;
 
-        button.addEventListener("click", () => {
-            loadConversation(conversation.id);
+        button.addEventListener("click", async () => {
+            await loadConversation(conversation.id);
+            closeSidebar();
         });
 
         elements.conversationList.appendChild(button);
@@ -166,11 +383,14 @@ function renderProjects() {
 
 function renderKnowledge() {
     elements.knowledgeList.replaceChildren();
+    elements.knowledgeCount.textContent =
+        String(state.knowledge.length);
 
     if (state.knowledge.length === 0) {
         const empty = document.createElement("div");
         empty.className = "knowledge-empty";
-        empty.textContent = "Este proyecto todavía no tiene conocimiento.";
+        empty.textContent =
+            "Este proyecto todavía no tiene fuentes de conocimiento.";
         elements.knowledgeList.appendChild(empty);
         return;
     }
@@ -183,11 +403,14 @@ function renderKnowledge() {
 
         const title = document.createElement("strong");
         title.textContent = source.title;
+        title.title = source.title;
 
         const meta = document.createElement("span");
         meta.textContent =
             source.chunk_count +
-            (source.chunk_count === 1 ? " fragmento" : " fragmentos");
+            (source.chunk_count === 1
+                ? " fragmento"
+                : " fragmentos");
 
         info.append(title, meta);
 
@@ -196,11 +419,20 @@ function renderKnowledge() {
         remove.className = "knowledge-delete";
         remove.textContent = "×";
         remove.title = "Eliminar fuente";
+        remove.setAttribute(
+            "aria-label",
+            "Eliminar " + source.title
+        );
 
         remove.addEventListener("click", async () => {
-            const confirmed = window.confirm(
-                "¿Eliminar esta fuente de conocimiento?"
-            );
+            const confirmed = await confirmAction({
+                title: "Eliminar fuente",
+                message:
+                    "Se eliminará “" +
+                    source.title +
+                    "” y sus fragmentos del proyecto.",
+                acceptText: "Eliminar",
+            });
 
             if (!confirmed) {
                 return;
@@ -214,9 +446,11 @@ function renderKnowledge() {
                         encodeURIComponent(source.id),
                     { method: "DELETE" }
                 );
+
                 await loadKnowledge();
+                notify("Fuente eliminada.", "success");
             } catch (error) {
-                window.alert(error.message);
+                notify(error.message, "error");
             }
         });
 
@@ -253,23 +487,46 @@ async function loadHealth() {
     try {
         const health = await requestJson("/health");
 
-        elements.modelBadge.textContent = health.model;
-        elements.ragBadge.textContent =
-            health.embedding_model || "RAG local";
+        elements.modelBadge.textContent =
+            health.model || "Modelo local";
+
+        if (health.action_tracker === "configured") {
+            elements.integrationBadge.textContent =
+                "Action Tracker listo";
+            elements.integrationBadge.className =
+                "status-chip live";
+        } else {
+            elements.integrationBadge.textContent =
+                "Action Tracker off";
+            elements.integrationBadge.className =
+                "status-chip neutral";
+        }
 
         if (health.database === "connected") {
-            elements.statusDot.className = "status-dot online";
-            elements.statusText.textContent = "Sistema listo";
-            elements.statusDetail.textContent = "PostgreSQL conectado";
+            setStatus(
+                "online",
+                "Sistema listo",
+                health.action_tracker === "configured"
+                    ? "PostgreSQL + Action Tracker"
+                    : "PostgreSQL conectado"
+            );
         } else {
-            elements.statusDot.className = "status-dot degraded";
-            elements.statusText.textContent = "Configuración pendiente";
-            elements.statusDetail.textContent = "PostgreSQL desconectado";
+            setStatus(
+                "degraded",
+                "Configuración pendiente",
+                "PostgreSQL desconectado"
+            );
         }
     } catch {
-        elements.statusDot.className = "status-dot degraded";
-        elements.statusText.textContent = "Servidor no disponible";
-        elements.statusDetail.textContent = "Revisa FastAPI";
+        setStatus(
+            "degraded",
+            "Servidor no disponible",
+            "Revisa FastAPI"
+        );
+        elements.integrationBadge.textContent =
+            "Action Tracker";
+        elements.integrationBadge.className =
+            "status-chip neutral";
     }
 }
 
@@ -306,9 +563,14 @@ async function loadConversations() {
                 encodeURIComponent(state.projectId)
         );
         renderConversationList();
-    } catch {
+    } catch (error) {
         state.conversations = [];
         renderConversationList();
+        notify(
+            "No se pudieron cargar las conversaciones: " +
+                error.message,
+            "error"
+        );
     }
 }
 
@@ -348,8 +610,13 @@ async function loadConversation(conversationId) {
 
         elements.conversationTitle.textContent =
             conversation?.title || "Conversación";
-
+        elements.conversationMeta.textContent =
+            "Historial guardado · Proyecto " +
+            (currentProject()?.name || "General");
         elements.deleteChatButton.disabled = false;
+
+        elements.ragBadge.textContent = "Contexto guardado";
+        elements.ragBadge.className = "context-badge";
 
         renderMessages(messages);
         renderConversationList();
@@ -365,10 +632,16 @@ function newConversation() {
     }
 
     state.conversationId = null;
-    elements.conversationTitle.textContent = "Nueva conversación";
+    elements.conversationTitle.textContent =
+        "Nueva conversación";
+    elements.conversationMeta.textContent =
+        "Asistente local · Solo lectura en Action Tracker";
     elements.deleteChatButton.disabled = true;
+    elements.ragBadge.textContent = "RAG local";
+    elements.ragBadge.className = "context-badge";
     renderMessages([]);
     renderConversationList();
+    closeSidebar();
     elements.messageInput.focus();
 }
 
@@ -377,10 +650,11 @@ function showError(message) {
 
     const node = createMessageElement(
         "assistant",
-        "Error: " + message
+        "No se pudo completar la solicitud. " + message
     );
     elements.messages.appendChild(node);
     scrollToBottom();
+    notify(message, "error");
 }
 
 async function sendMessage(message) {
@@ -434,14 +708,23 @@ async function sendMessage(message) {
 
         state.conversationId = result.conversation_id;
         elements.modelBadge.textContent = result.model;
-        elements.ragBadge.textContent =
-            result.action_tracker_used
-                ? "Action Tracker live"
-                : (
-                    result.knowledge_chunks_used > 0
-                        ? result.knowledge_chunks_used + " chunks"
-                        : "RAG local"
-                );
+
+        if (result.action_tracker_used) {
+            elements.ragBadge.textContent =
+                "Action Tracker live";
+            elements.ragBadge.className =
+                "context-badge live";
+        } else if (result.knowledge_chunks_used > 0) {
+            elements.ragBadge.textContent =
+                result.knowledge_chunks_used + " chunks";
+            elements.ragBadge.className =
+                "context-badge";
+        } else {
+            elements.ragBadge.textContent = "Chat local";
+            elements.ragBadge.className =
+                "context-badge";
+        }
+
         elements.deleteChatButton.disabled = false;
 
         await loadConversations();
@@ -452,6 +735,11 @@ async function sendMessage(message) {
 
         elements.conversationTitle.textContent =
             active?.title || "Conversación";
+        elements.conversationMeta.textContent =
+            result.action_tracker_used
+                ? "Respuesta con datos live de Action Tracker"
+                : "Historial guardado · Proyecto " +
+                    (currentProject()?.name || "General");
 
         renderConversationList();
         scrollToBottom();
@@ -470,9 +758,12 @@ async function deleteCurrentConversation() {
         return;
     }
 
-    const confirmed = window.confirm(
-        "¿Eliminar esta conversación y todos sus mensajes?"
-    );
+    const confirmed = await confirmAction({
+        title: "Eliminar conversación",
+        message:
+            "Se eliminará esta conversación y todos sus mensajes guardados.",
+        acceptText: "Eliminar conversación",
+    });
 
     if (!confirmed) {
         return;
@@ -489,31 +780,42 @@ async function deleteCurrentConversation() {
 
         await loadConversations();
         newConversation();
+        notify("Conversación eliminada.", "success");
     } catch (error) {
-        showError(error.message);
+        notify(error.message, "error");
     }
 }
 
 function resizeInput() {
     elements.messageInput.style.height = "auto";
     elements.messageInput.style.height =
-        Math.min(elements.messageInput.scrollHeight, 170) + "px";
+        Math.min(
+            Math.max(elements.messageInput.scrollHeight, 38),
+            170
+        ) + "px";
 }
 
-function openModal(modal) {
-    modal.hidden = false;
-    document.body.classList.add("modal-open");
-}
+async function openKnowledge() {
+    const project = currentProject();
 
-function closeModal(modal) {
-    modal.hidden = true;
+    elements.knowledgeProjectTitle.textContent =
+        project
+            ? "Conocimiento · " + project.name
+            : "Conocimiento";
 
-    if (
-        elements.projectModal.hidden &&
-        elements.knowledgeModal.hidden
-    ) {
-        document.body.classList.remove("modal-open");
+    try {
+        await loadKnowledge();
+        openModal(elements.knowledgeModal);
+        elements.knowledgeTitle.focus();
+    } catch (error) {
+        notify(error.message, "error");
     }
+}
+
+function openProjectModal() {
+    elements.projectForm.reset();
+    openModal(elements.projectModal);
+    elements.projectName.focus();
 }
 
 elements.chatForm.addEventListener("submit", (event) => {
@@ -542,63 +844,99 @@ elements.messageInput.addEventListener("keydown", (event) => {
     }
 });
 
-elements.newChatButton.addEventListener("click", newConversation);
+elements.newChatButton.addEventListener(
+    "click",
+    newConversation
+);
 
 elements.deleteChatButton.addEventListener(
     "click",
     deleteCurrentConversation
 );
 
-elements.projectSelect.addEventListener("change", async () => {
-    state.projectId = elements.projectSelect.value;
-    updateProjectHeader();
-    newConversation();
-    await loadConversations();
-});
-
-elements.newProjectButton.addEventListener("click", () => {
-    elements.projectForm.reset();
-    openModal(elements.projectModal);
-    elements.projectName.focus();
-});
-
-elements.knowledgeButton.addEventListener("click", async () => {
-    const project = currentProject();
-    elements.knowledgeProjectTitle.textContent =
-        project ? "Conocimiento · " + project.name : "Conocimiento";
-
-    await loadKnowledge();
-    openModal(elements.knowledgeModal);
-    elements.knowledgeTitle.focus();
-});
-
-elements.projectForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    try {
-        const project = await requestJson(
-            "/v1/projects",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    name: elements.projectName.value.trim(),
-                    description:
-                        elements.projectDescription.value.trim(),
-                }),
-            }
-        );
-
-        await loadProjects(project.id);
-        await loadConversations();
+elements.projectSelect.addEventListener(
+    "change",
+    async () => {
+        state.projectId = elements.projectSelect.value;
+        updateProjectHeader();
         newConversation();
-        closeModal(elements.projectModal);
-    } catch (error) {
-        window.alert(error.message);
+        await loadConversations();
     }
-});
+);
+
+elements.newProjectButton.addEventListener(
+    "click",
+    openProjectModal
+);
+
+elements.projectNavButton.addEventListener(
+    "click",
+    openProjectModal
+);
+
+elements.knowledgeButton.addEventListener(
+    "click",
+    openKnowledge
+);
+
+elements.knowledgeNavButton.addEventListener(
+    "click",
+    openKnowledge
+);
+
+document
+    .querySelectorAll("[data-nav-chat]")
+    .forEach((button) => {
+        button.addEventListener("click", () => {
+            closeSidebar();
+            elements.messageInput.focus();
+        });
+    });
+
+elements.projectForm.addEventListener(
+    "submit",
+    async (event) => {
+        event.preventDefault();
+
+        const submit =
+            elements.projectForm.querySelector(
+                'button[type="submit"]'
+            );
+        submit.disabled = true;
+
+        try {
+            const project = await requestJson(
+                "/v1/projects",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        name: elements.projectName.value.trim(),
+                        description:
+                            elements.projectDescription.value.trim(),
+                    }),
+                }
+            );
+
+            await loadProjects(project.id);
+            await loadConversations();
+            newConversation();
+            closeModal(elements.projectModal);
+            notify(
+                "Proyecto “" +
+                    project.name +
+                    "” creado.",
+                "success"
+            );
+        } catch (error) {
+            notify(error.message, "error");
+        } finally {
+            submit.disabled = false;
+        }
+    }
+);
 
 elements.knowledgeForm.addEventListener(
     "submit",
@@ -627,16 +965,22 @@ elements.knowledgeForm.addEventListener(
                         "Content-Type": "application/json",
                     },
                     body: JSON.stringify({
-                        title: elements.knowledgeTitle.value.trim(),
-                        content: elements.knowledgeContent.value.trim(),
+                        title:
+                            elements.knowledgeTitle.value.trim(),
+                        content:
+                            elements.knowledgeContent.value.trim(),
                     }),
                 }
             );
 
             elements.knowledgeForm.reset();
             await loadKnowledge();
+            notify(
+                "Conocimiento agregado al proyecto.",
+                "success"
+            );
         } catch (error) {
-            window.alert(error.message);
+            notify(error.message, "error");
         } finally {
             elements.knowledgeSubmitButton.disabled = false;
             elements.knowledgeSubmitButton.textContent =
@@ -645,29 +989,97 @@ elements.knowledgeForm.addEventListener(
     }
 );
 
-document.querySelectorAll("[data-close-modal]").forEach((button) => {
-    button.addEventListener("click", () => {
-        const modal = document.getElementById(
-            button.dataset.closeModal
-        );
-        closeModal(modal);
-    });
-});
-
-document.querySelectorAll(".modal-backdrop").forEach((modal) => {
-    modal.addEventListener("click", (event) => {
-        if (event.target === modal) {
+document
+    .querySelectorAll("[data-close-modal]")
+    .forEach((button) => {
+        button.addEventListener("click", () => {
+            const modal = document.getElementById(
+                button.dataset.closeModal
+            );
             closeModal(modal);
-        }
+        });
     });
+
+document
+    .querySelectorAll(".modal-backdrop")
+    .forEach((modal) => {
+        modal.addEventListener("click", (event) => {
+            if (event.target !== modal) {
+                return;
+            }
+
+            if (modal === elements.confirmModal) {
+                resolveConfirmation(false);
+                return;
+            }
+
+            closeModal(modal);
+        });
+    });
+
+elements.confirmCancel.addEventListener(
+    "click",
+    () => resolveConfirmation(false)
+);
+
+elements.confirmAccept.addEventListener(
+    "click",
+    () => resolveConfirmation(true)
+);
+
+elements.sidebarToggle.addEventListener(
+    "click",
+    openSidebar
+);
+
+elements.sidebarClose.addEventListener(
+    "click",
+    closeSidebar
+);
+
+elements.sidebarBackdrop.addEventListener(
+    "click",
+    closeSidebar
+);
+
+document
+    .querySelectorAll(".suggestion")
+    .forEach((button) => {
+        button.addEventListener("click", () => {
+            const strong = button.querySelector("strong");
+            elements.messageInput.value =
+                strong?.textContent.trim() ||
+                button.textContent.trim();
+            resizeInput();
+            elements.messageInput.focus();
+        });
+    });
+
+document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+        return;
+    }
+
+    if (!elements.confirmModal.hidden) {
+        resolveConfirmation(false);
+        return;
+    }
+
+    if (!elements.projectModal.hidden) {
+        closeModal(elements.projectModal);
+    }
+
+    if (!elements.knowledgeModal.hidden) {
+        closeModal(elements.knowledgeModal);
+    }
+
+    closeSidebar();
 });
 
-document.querySelectorAll(".suggestion").forEach((button) => {
-    button.addEventListener("click", () => {
-        elements.messageInput.value = button.textContent.trim();
-        resizeInput();
-        elements.messageInput.focus();
-    });
+window.addEventListener("resize", () => {
+    if (window.innerWidth > 900) {
+        closeSidebar();
+    }
 });
 
 async function bootstrap() {
@@ -681,6 +1093,7 @@ async function bootstrap() {
     }
 
     newConversation();
+    resizeInput();
 }
 
 bootstrap();
