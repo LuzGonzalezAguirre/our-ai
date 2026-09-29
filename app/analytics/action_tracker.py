@@ -6,9 +6,9 @@ from typing import Iterable
 from app.connectors.action_tracker import action_tracker
 
 
-BU_RE = re.compile(r"\\bBU:\\s*([^|\\n]+)", re.IGNORECASE)
-WC_RE = re.compile(r"\\bWC:\\s*([^|\\n]+)", re.IGNORECASE)
-REASON_RE = re.compile(r"^Razón:\\s*([^|\\n]+)", re.IGNORECASE | re.MULTILINE)
+BU_RE = re.compile(r"\bBU:\s*([^|\n]+)", re.IGNORECASE)
+WC_RE = re.compile(r"\bWC:\s*([^|\n]+)", re.IGNORECASE)
+REASON_RE = re.compile(r"^Razón:\s*([^|\n]+)", re.IGNORECASE | re.MULTILINE)
 
 
 def _extract(pattern: re.Pattern, value: str | None) -> str | None:
