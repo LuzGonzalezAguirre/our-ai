@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,6 +10,7 @@ from app.api.action_tracker import router as action_tracker_router
 from app.api.chat import router as chat_router
 from app.api.knowledge import router as knowledge_router
 from app.api.projects import router as projects_router
+from app.connectors.action_tracker import action_tracker
 from app.core.config import settings
 from app.db.database import (
     check_database,
@@ -29,7 +31,19 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         app.state.database_startup_error = str(exc)
 
+    warm_task = None
+
+    if action_tracker.configured:
+        warm_task = asyncio.create_task(
+            action_tracker.warm_cache()
+        )
+
     yield
+
+    if warm_task and not warm_task.done():
+        warm_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await warm_task
 
     await close_database()
 
