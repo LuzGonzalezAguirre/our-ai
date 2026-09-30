@@ -34,6 +34,7 @@ async def lifespan(app: FastAPI):
     warm_task = None
 
     if action_tracker.configured:
+        action_tracker.load_persistent_cache()
         warm_task = asyncio.create_task(
             action_tracker.warm_cache()
         )
