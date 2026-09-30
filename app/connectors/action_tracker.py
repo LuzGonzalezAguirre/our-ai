@@ -1,9 +1,14 @@
+import asyncio
+import logging
 from time import monotonic
 from urllib.parse import quote
 
 import httpx
 
 from app.core.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class ActionTrackerError(RuntimeError):
@@ -18,6 +23,10 @@ class ActionTrackerConnector:
         self._cache: dict[
             tuple[str, tuple[tuple[str, str], ...]],
             tuple[float, dict],
+        ] = {}
+        self._refresh_tasks: dict[
+            tuple[str, tuple[tuple[str, str], ...]],
+            asyncio.Task,
         ] = {}
 
     @property
@@ -41,37 +50,11 @@ class ActionTrackerConnector:
         )
         return path, normalized
 
-    async def _get(
+    async def _request(
         self,
         path: str,
         params: dict | None = None,
-        *,
-        cache_seconds: float = 0.0,
     ) -> dict:
-        if not self.configured:
-            raise ActionTrackerError(
-                "La integración con Action Tracker no está configurada."
-            )
-
-        cache_key = self._cache_key(
-            path,
-            params,
-        )
-
-        if cache_seconds > 0:
-            cached = self._cache.get(cache_key)
-
-            if cached:
-                cached_at, data = cached
-
-                if monotonic() - cached_at < cache_seconds:
-                    return data
-
-                self._cache.pop(
-                    cache_key,
-                    None,
-                )
-
         headers = {
             "X-AT-Token": self.token,
             "Accept": "application/json",
@@ -104,11 +87,104 @@ class ActionTrackerConnector:
             ) from exc
 
         try:
-            data = response.json()
+            return response.json()
         except ValueError as exc:
             raise ActionTrackerError(
                 "Action Tracker respondió con datos no válidos."
             ) from exc
+
+    async def _refresh_cache(
+        self,
+        cache_key: tuple[str, tuple[tuple[str, str], ...]],
+        path: str,
+        params: dict | None,
+    ) -> None:
+        try:
+            data = await self._request(
+                path,
+                params,
+            )
+            self._cache[cache_key] = (
+                monotonic(),
+                data,
+            )
+        except ActionTrackerError:
+            logger.exception(
+                "No se pudo refrescar el caché de Action Tracker para %s.",
+                path,
+            )
+        finally:
+            self._refresh_tasks.pop(
+                cache_key,
+                None,
+            )
+
+    def _schedule_refresh(
+        self,
+        cache_key: tuple[str, tuple[tuple[str, str], ...]],
+        path: str,
+        params: dict | None,
+    ) -> None:
+        current = self._refresh_tasks.get(
+            cache_key
+        )
+
+        if current and not current.done():
+            return
+
+        task = asyncio.create_task(
+            self._refresh_cache(
+                cache_key,
+                path,
+                dict(params or {}),
+            )
+        )
+        self._refresh_tasks[cache_key] = task
+
+    async def _get(
+        self,
+        path: str,
+        params: dict | None = None,
+        *,
+        cache_seconds: float = 0.0,
+    ) -> dict:
+        if not self.configured:
+            raise ActionTrackerError(
+                "La integración con Action Tracker no está configurada."
+            )
+
+        cache_key = self._cache_key(
+            path,
+            params,
+        )
+
+        if cache_seconds > 0:
+            cached = self._cache.get(cache_key)
+
+            if cached:
+                cached_at, data = cached
+                age = monotonic() - cached_at
+
+                if age < cache_seconds:
+                    return data
+
+                if age < settings.action_tracker_stale_seconds:
+                    self._schedule_refresh(
+                        cache_key,
+                        path,
+                        params,
+                    )
+                    return data
+
+                self._cache.pop(
+                    cache_key,
+                    None,
+                )
+
+        data = await self._request(
+            path,
+            params,
+        )
 
         if cache_seconds > 0:
             self._cache[cache_key] = (
