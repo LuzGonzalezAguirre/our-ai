@@ -94,6 +94,11 @@ async def health():
             )
             else "disabled"
         ),
+        "action_tracker_cache": (
+            action_tracker.cache_status()
+            if action_tracker.configured
+            else None
+        ),
     }
 
 
