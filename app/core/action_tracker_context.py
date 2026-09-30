@@ -1773,6 +1773,11 @@ async def build_action_tracker_result(
             question
         )
 
+        if exclude_npi:
+            # "Sin NPI" filtra el alcance completo actual,
+            # no solamente las filas visibles de la respuesta previa.
+            result_codes = []
+
         scoped = _domain_filter(
             enriched,
             domain,
