@@ -38,6 +38,9 @@ class ActionTrackerConnector:
             asyncio.Task,
         ] = {}
         self._persist_lock = asyncio.Lock()
+        self._persistent_load_attempted = False
+        self._persistent_loaded_count = 0
+        self._last_cache_source = "none"
 
     @property
     def configured(self) -> bool:
@@ -61,7 +64,13 @@ class ActionTrackerConnector:
         return path, normalized
 
     def load_persistent_cache(self) -> int:
+        if self._persistent_load_attempted:
+            return self._persistent_loaded_count
+
+        self._persistent_load_attempted = True
+
         if not CACHE_FILE.exists():
+            self._persistent_loaded_count = 0
             return 0
 
         try:
@@ -123,6 +132,8 @@ class ActionTrackerConnector:
                 ValueError,
             ):
                 continue
+
+        self._persistent_loaded_count = loaded
 
         if loaded:
             logger.info(
@@ -304,6 +315,12 @@ class ActionTrackerConnector:
                 "La integración con Action Tracker no está configurada."
             )
 
+        if (
+            cache_seconds > 0
+            and not self._persistent_load_attempted
+        ):
+            self.load_persistent_cache()
+
         cache_key = self._cache_key(
             path,
             params,
@@ -318,6 +335,7 @@ class ActionTrackerConnector:
                 cached_at, _saved_at, data = cached
 
                 if cache_key in self._persisted_keys:
+                    self._last_cache_source = "disk"
                     self._schedule_refresh(
                         cache_key,
                         path,
@@ -328,9 +346,11 @@ class ActionTrackerConnector:
                 age = monotonic() - cached_at
 
                 if age < cache_seconds:
+                    self._last_cache_source = "memory_fresh"
                     return data
 
                 if age < settings.action_tracker_stale_seconds:
+                    self._last_cache_source = "memory_stale"
                     self._schedule_refresh(
                         cache_key,
                         path,
@@ -348,6 +368,7 @@ class ActionTrackerConnector:
         )
 
         if current_refresh and not current_refresh.done():
+            self._last_cache_source = "refresh_wait"
             await current_refresh
 
             cached = self._cache.get(
@@ -356,6 +377,7 @@ class ActionTrackerConnector:
             if cached:
                 return cached[2]
 
+        self._last_cache_source = "live"
         data = await self._request(
             path,
             params,
@@ -374,6 +396,45 @@ class ActionTrackerConnector:
             await self._persist_cache()
 
         return data
+
+    def cache_status(self) -> dict:
+        file_exists = CACHE_FILE.exists()
+        file_age_seconds = None
+
+        if file_exists:
+            try:
+                file_age_seconds = max(
+                    time() - CACHE_FILE.stat().st_mtime,
+                    0.0,
+                )
+            except OSError:
+                file_age_seconds = None
+
+        return {
+            "persistent_file": str(CACHE_FILE),
+            "persistent_exists": file_exists,
+            "persistent_load_attempted": (
+                self._persistent_load_attempted
+            ),
+            "persistent_loaded_count": (
+                self._persistent_loaded_count
+            ),
+            "memory_entries": len(self._cache),
+            "persisted_entries": len(
+                self._persisted_keys
+            ),
+            "refresh_tasks": sum(
+                1
+                for task in self._refresh_tasks.values()
+                if not task.done()
+            ),
+            "last_source": self._last_cache_source,
+            "file_age_seconds": (
+                round(file_age_seconds, 1)
+                if file_age_seconds is not None
+                else None
+            ),
+        }
 
     async def warm_cache(self) -> None:
         if not self.configured:
