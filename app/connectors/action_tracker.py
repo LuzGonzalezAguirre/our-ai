@@ -194,6 +194,22 @@ class ActionTrackerConnector:
 
         return data
 
+    async def warm_cache(self) -> None:
+        if not self.configured:
+            return
+
+        try:
+            await self.list_actions(
+                open_only=False,
+            )
+            logger.info(
+                "Action Tracker cache precargado."
+            )
+        except ActionTrackerError:
+            logger.exception(
+                "No se pudo precargar el caché de Action Tracker."
+            )
+
     async def health(self) -> dict:
         return await self._get(
             "/api/ai/health"
