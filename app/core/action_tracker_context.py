@@ -120,6 +120,13 @@ FOLLOWUP_HINTS = (
     "otras acciones",
     "otras tres",
     "y las otras",
+    "cuáles son de",
+    "cuales son de",
+    "solo las que",
+    "quién concentra más",
+    "quien concentra mas",
+    "vencen primero",
+    "vence primero",
 )
 
 BOTTLENECK_TERMS = (
@@ -256,6 +263,10 @@ def _exclude_npi_requested(text: str) -> bool:
             "excluir npi",
             "excluye npi",
             "excepto npi",
+            "no sean npi",
+            "que no sean npi",
+            "no sea npi",
+            "que no sea npi",
         )
     )
 
@@ -444,10 +455,10 @@ def _domain_filter(
         elif domain == "maintenance":
             keep = (
                 code.startswith("mtto-")
-                or "maintenance" in category
-                or "mantenimiento" in category
-                or "maintenance" in title
-                or "mantenimiento" in title
+                or category in {
+                    "maintenance",
+                    "mantenimiento",
+                }
             )
         elif domain == "npi":
             keep = code.startswith("npi-")
@@ -1164,6 +1175,71 @@ def _summary_answer(
     return "\n".join(lines)
 
 
+def _due_first_answer(
+    actions: list[dict],
+) -> str:
+    dated = []
+
+    for action in actions:
+        due = _parse_date(
+            action.get("fecha_fin")
+            or action.get("fecha_fin_base")
+        )
+
+        if due:
+            dated.append((due, action))
+
+    if not dated:
+        return "No encontré fechas compromiso para ese alcance."
+
+    dated.sort(
+        key=lambda item: item[0]
+    )
+
+    first_due = dated[0][0]
+    first_actions = [
+        action
+        for due, action in dated
+        if due == first_due
+    ]
+
+    lines = [
+        f"**Vencen primero: {first_due.isoformat()}**",
+        "",
+    ]
+    lines.extend(
+        _action_line(action)
+        for action in first_actions
+    )
+
+    next_due = next(
+        (
+            due
+            for due, _action in dated
+            if due > first_due
+        ),
+        None,
+    )
+
+    if next_due:
+        next_actions = [
+            action
+            for due, action in dated
+            if due == next_due
+        ]
+        lines.extend([
+            "",
+            f"**Después: {next_due.isoformat()}**",
+            "",
+        ])
+        lines.extend(
+            _action_line(action)
+            for action in next_actions
+        )
+
+    return "\n".join(lines)
+
+
 def _top_n_answer(
     actions: list[dict],
     requested: int,
@@ -1697,6 +1773,11 @@ async def build_action_tracker_result(
             question
         )
 
+        if exclude_npi:
+            # "Sin NPI" filtra el alcance completo actual,
+            # no solamente las filas visibles de la respuesta previa.
+            result_codes = []
+
         scoped = _domain_filter(
             enriched,
             domain,
@@ -2016,6 +2097,39 @@ async def build_action_tracker_result(
                     open_scoped,
                 ),
                 mode="pending_concentration",
+            )
+
+        if "concentra" in folded:
+            return ActionTrackerChatResult(
+                direct_answer=_owners_answer(
+                    "Acciones por responsable",
+                    open_scoped,
+                ),
+                mode="owner_concentration",
+            )
+
+        if (
+            "quién es responsable" in folded
+            or "quien es responsable" in folded
+        ):
+            return ActionTrackerChatResult(
+                direct_answer=_owners_answer(
+                    "Responsables del alcance actual",
+                    open_scoped,
+                ),
+                mode="owners_in_scope",
+            )
+
+        if (
+            "vencen primero" in folded
+            or "vence primero" in folded
+            or "vencen antes" in folded
+        ):
+            return ActionTrackerChatResult(
+                direct_answer=_due_first_answer(
+                    open_scoped
+                ),
+                mode="due_first",
             )
 
         if (
