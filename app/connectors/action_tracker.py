@@ -1,6 +1,8 @@
 import asyncio
+import json
 import logging
-from time import monotonic
+from pathlib import Path
+from time import monotonic, time
 from urllib.parse import quote
 
 import httpx
@@ -9,6 +11,10 @@ from app.core.config import settings
 
 
 logger = logging.getLogger(__name__)
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+CACHE_DIR = ROOT_DIR / ".cache"
+CACHE_FILE = CACHE_DIR / "action_tracker.json"
 
 
 class ActionTrackerError(RuntimeError):
@@ -22,12 +28,16 @@ class ActionTrackerConnector:
         self.timeout = settings.action_tracker_timeout_seconds
         self._cache: dict[
             tuple[str, tuple[tuple[str, str], ...]],
-            tuple[float, dict],
+            tuple[float, float, dict],
         ] = {}
+        self._persisted_keys: set[
+            tuple[str, tuple[tuple[str, str], ...]]
+        ] = set()
         self._refresh_tasks: dict[
             tuple[str, tuple[tuple[str, str], ...]],
             asyncio.Task,
         ] = {}
+        self._persist_lock = asyncio.Lock()
 
     @property
     def configured(self) -> bool:
@@ -49,6 +59,140 @@ class ActionTrackerConnector:
             )
         )
         return path, normalized
+
+    def load_persistent_cache(self) -> int:
+        if not CACHE_FILE.exists():
+            return 0
+
+        try:
+            payload = json.loads(
+                CACHE_FILE.read_text(
+                    encoding="utf-8"
+                )
+            )
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+        ):
+            logger.exception(
+                "No se pudo cargar el snapshot local de Action Tracker."
+            )
+            return 0
+
+        loaded = 0
+        now_wall = time()
+
+        for entry in payload.get("entries", []):
+            try:
+                saved_at = float(entry["saved_at"])
+                age = max(
+                    now_wall - saved_at,
+                    0.0,
+                )
+
+                if age > settings.action_tracker_persist_seconds:
+                    continue
+
+                path = str(entry["path"])
+                params = {
+                    str(key): str(value)
+                    for key, value in (
+                        entry.get("params") or {}
+                    ).items()
+                }
+                data = entry["data"]
+                cache_key = self._cache_key(
+                    path,
+                    params,
+                )
+
+                self._cache[cache_key] = (
+                    monotonic(),
+                    saved_at,
+                    data,
+                )
+                self._persisted_keys.add(
+                    cache_key
+                )
+                loaded += 1
+
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+        if loaded:
+            logger.info(
+                "Action Tracker: %s snapshot(s) local(es) cargado(s).",
+                loaded,
+            )
+
+        return loaded
+
+    def _snapshot_payload(self) -> dict:
+        entries = []
+
+        for (
+            path,
+            normalized_params,
+        ), (
+            _cached_at,
+            saved_at,
+            data,
+        ) in self._cache.items():
+            entries.append({
+                "path": path,
+                "params": dict(
+                    normalized_params
+                ),
+                "saved_at": saved_at,
+                "data": data,
+            })
+
+        return {
+            "version": 1,
+            "entries": entries,
+        }
+
+    def _write_snapshot(
+        self,
+        payload: dict,
+    ) -> None:
+        CACHE_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        temp_file = CACHE_FILE.with_suffix(
+            ".tmp"
+        )
+        temp_file.write_text(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+        temp_file.replace(
+            CACHE_FILE
+        )
+
+    async def _persist_cache(self) -> None:
+        async with self._persist_lock:
+            payload = self._snapshot_payload()
+
+            try:
+                await asyncio.to_thread(
+                    self._write_snapshot,
+                    payload,
+                )
+            except OSError:
+                logger.exception(
+                    "No se pudo guardar el snapshot local de Action Tracker."
+                )
 
     async def _request(
         self,
@@ -104,10 +248,17 @@ class ActionTrackerConnector:
                 path,
                 params,
             )
+            now_wall = time()
             self._cache[cache_key] = (
                 monotonic(),
+                now_wall,
                 data,
             )
+            self._persisted_keys.discard(
+                cache_key
+            )
+            await self._persist_cache()
+
         except ActionTrackerError:
             logger.exception(
                 "No se pudo refrescar el caché de Action Tracker para %s.",
@@ -159,10 +310,21 @@ class ActionTrackerConnector:
         )
 
         if cache_seconds > 0:
-            cached = self._cache.get(cache_key)
+            cached = self._cache.get(
+                cache_key
+            )
 
             if cached:
-                cached_at, data = cached
+                cached_at, _saved_at, data = cached
+
+                if cache_key in self._persisted_keys:
+                    self._schedule_refresh(
+                        cache_key,
+                        path,
+                        params,
+                    )
+                    return data
+
                 age = monotonic() - cached_at
 
                 if age < cache_seconds:
@@ -181,16 +343,35 @@ class ActionTrackerConnector:
                     None,
                 )
 
+        current_refresh = self._refresh_tasks.get(
+            cache_key
+        )
+
+        if current_refresh and not current_refresh.done():
+            await current_refresh
+
+            cached = self._cache.get(
+                cache_key
+            )
+            if cached:
+                return cached[2]
+
         data = await self._request(
             path,
             params,
         )
 
         if cache_seconds > 0:
+            now_wall = time()
             self._cache[cache_key] = (
                 monotonic(),
+                now_wall,
                 data,
             )
+            self._persisted_keys.discard(
+                cache_key
+            )
+            await self._persist_cache()
 
         return data
 
@@ -198,16 +379,33 @@ class ActionTrackerConnector:
         if not self.configured:
             return
 
-        try:
-            await self.list_actions(
+        tasks = [
+            self.list_actions(
                 open_only=False,
+            ),
+            self.list_npi_projects(),
+            self.pending_approvals(),
+        ]
+
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=True,
+        )
+
+        failures = sum(
+            1
+            for result in results
+            if isinstance(result, Exception)
+        )
+
+        if failures:
+            logger.warning(
+                "Action Tracker warmup terminó con %s fallo(s).",
+                failures,
             )
+        else:
             logger.info(
                 "Action Tracker cache precargado."
-            )
-        except ActionTrackerError:
-            logger.exception(
-                "No se pudo precargar el caché de Action Tracker."
             )
 
     async def health(self) -> dict:
